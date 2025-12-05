@@ -1,44 +1,50 @@
 # Trinity
 
-Airflow deployment on Azure VM with Docker Compose.
+A lean data lakehouse platform on Azure for BI and analytics.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Azure (eastus2)                         │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │              Resource Group: airflow-rg               │  │
-│  │  ┌─────────────────────────────────────────────────┐  │  │
-│  │  │         VM: airflow-vm (Standard_D4s_v3)        │  │  │
-│  │  │         Ubuntu 22.04 LTS | 128 GB SSD           │  │  │
-│  │  │  ┌───────────────────────────────────────────┐  │  │  │
-│  │  │  │            Docker Compose                 │  │  │  │
-│  │  │  │  ┌─────────────┐  ┌─────────────────────┐ │  │  │  │
-│  │  │  │  │  PostgreSQL │  │  Airflow Webserver  │ │  │  │  │
-│  │  │  │  │    :5432    │  │       :8080         │ │  │  │  │
-│  │  │  │  └─────────────┘  └─────────────────────┘ │  │  │  │
-│  │  │  │  ┌─────────────────────────────────────┐  │  │  │  │
-│  │  │  │  │        Airflow Scheduler            │  │  │  │  │
-│  │  │  │  │        (LocalExecutor)              │  │  │  │  │
-│  │  │  │  └─────────────────────────────────────┘  │  │  │  │
-│  │  │  └───────────────────────────────────────────┘  │  │  │
-│  │  └─────────────────────────────────────────────────┘  │  │
-│  │  NSG: SSH (22), Airflow UI (8080)                     │  │
-│  └───────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Azure (eastus2)                                │
+│                                                                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────────┐  │
+│  │             │    │             │    │     ADLS Gen2 (Data Lake)       │  │
+│  │  Source DB  │───▶│   Airflow   │───▶│  ┌─────────┬────────┬───────┐  │  │
+│  │   (ERP)     │    │    (VM)     │    │  │ Bronze  │ Silver │ Gold  │  │  │
+│  │             │    │             │    │  │  (raw)  │(clean) │ (agg) │  │  │
+│  └─────────────┘    └─────────────┘    │  └─────────┴────────┴───────┘  │  │
+│                            │           └─────────────────────────────────┘  │
+│                            │                          │                     │
+│                            ▼                          ▼                     │
+│                     ┌─────────────┐           ┌─────────────┐               │
+│                     │  Azure SQL  │◀──────────│  Power BI   │               │
+│                     │  (serving)  │           │             │               │
+│                     └─────────────┘           └─────────────┘               │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+| Layer | Component | Status |
+|-------|-----------|--------|
+| 1. Source | Azure SQL DB / ERP | - |
+| 2. Orchestration | Airflow on Azure VM | ✅ |
+| 3. Lakehouse | ADLS Gen2 (Bronze/Silver/Gold) | ✅ |
+| 4. Transform | Airflow + Python/Pandas | - |
+| 5. Serving | Azure SQL DB | - |
+| 6. BI | Power BI | - |
 
 ## Prerequisites
 
 - macOS or Linux
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
-- Azure subscription with permissions to create resources
-
-### Install Azure CLI (macOS)
+- Azure subscription
 
 ```bash
+# Install Azure CLI (macOS)
 brew install azure-cli
+
+# Login
+az login
 ```
 
 ## Quick Start
@@ -48,21 +54,12 @@ brew install azure-cli
 ```bash
 git clone https://github.com/gaon-ai/trinity.git
 cd trinity
+
+# Set your subscription ID
+export SUBSCRIPTION_ID="your-subscription-id"
 ```
 
-Edit `infra/variables.sh` and set your subscription ID:
-
-```bash
-export SUBSCRIPTION_ID="your-subscription-id-here"
-```
-
-### 2. Login to Azure
-
-```bash
-az login
-```
-
-### 3. Create the VM
+### 2. Create the VM (Airflow)
 
 ```bash
 cd infra
@@ -70,214 +67,132 @@ chmod +x *.sh
 ./01-create-vm.sh
 ```
 
-This creates:
-| Resource | Value |
-|----------|-------|
-| Resource Group | `airflow-rg` |
-| VM Size | `Standard_D4s_v3` (4 vCPU, 16 GB RAM) |
-| Region | `eastus2` |
-| OS | Ubuntu 22.04 LTS |
-| Disk | 128 GB Premium SSD |
-| SSH Key | `~/.ssh/airflow_vm_key` |
-
-The script outputs the VM's public IP and SSH command.
-
-### 4. Copy files and setup VM
+### 3. Setup the VM
 
 ```bash
-# Copy files to VM (replace <VM_IP> with actual IP)
+# Copy files to VM (use the IP from step 2)
 scp -i ~/.ssh/airflow_vm_key -r ../airflow 02-setup-vm.sh azureuser@<VM_IP>:~/
 
-# SSH into the VM
+# SSH and run setup
 ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP>
-
-# Run setup script
-chmod +x 02-setup-vm.sh
-./02-setup-vm.sh
-```
-
-The setup script:
-- Installs Docker and Docker Compose
-- Creates `/opt/airflow` directory structure
-- Configures firewall (ufw)
-- Creates systemd service for auto-restart
-
-### 5. Configure and start Airflow
-
-```bash
-# Create .env file
-cd /opt/airflow
-cp .env.example .env
-
-# Generate secure keys
-FERNET_KEY=$(openssl rand -base64 32)
-ADMIN_PASS=$(openssl rand -base64 12 | tr -d "/+=")
-
-# Update .env with generated values
-sed -i "s|YOUR_FERNET_KEY_HERE|$FERNET_KEY|" .env
-sed -i "s|YOUR_ADMIN_PASSWORD|$ADMIN_PASS|" .env
-
-# Save your admin password!
-echo "Admin password: $ADMIN_PASS"
+chmod +x 02-setup-vm.sh && ./02-setup-vm.sh
 
 # Start Airflow
-docker-compose up -d
+cd /opt/airflow && docker-compose up -d
 ```
 
-### 6. Access Airflow
-
-Open `http://<VM_IP>:8080` in your browser.
-
-Login with:
-- **Username**: `admin`
-- **Password**: (the password you generated above)
-
-### 7. (Optional) Open firewall for public access
-
-By default, the firewall restricts access to your IP. To open it:
+### 4. Create Data Lake
 
 ```bash
-# From your local machine
-az network nsg rule update \
-  --resource-group airflow-rg \
-  --nsg-name airflow-nsg \
-  --name AllowAirflowUI \
-  --source-address-prefixes '*'
+./03-create-datalake.sh
 ```
+
+### 5. Access Airflow
+
+Open `http://<VM_IP>:8080` - credentials are shown during setup.
 
 ## Project Structure
 
 ```
 trinity/
 ├── infra/
-│   ├── variables.sh          # Azure configuration (subscription, region, VM size)
-│   ├── 01-create-vm.sh       # Creates Azure resources (VM, network, firewall)
-│   └── 02-setup-vm.sh        # Configures VM (Docker, directories, systemd)
+│   ├── variables.sh          # All configuration in one place
+│   ├── 01-create-vm.sh       # Creates Azure VM for Airflow
+│   ├── 02-setup-vm.sh        # Installs Docker + Airflow on VM
+│   └── 03-create-datalake.sh # Creates ADLS Gen2 with medallion layers
 ├── airflow/
-│   ├── docker-compose.yaml   # Airflow services (webserver, scheduler, postgres)
-│   ├── .env.example          # Environment variables template
+│   ├── docker-compose.yaml   # Airflow services
+│   ├── .env.example          # Environment template
 │   └── dags/
-│       └── example_dag.py    # Sample DAG for testing
+│       └── example_dag.py    # Sample DAG
+├── docs/
+│   └── infrastructure-request.md  # Template for infra team
 └── README.md
 ```
 
 ## Configuration
 
-### VM Settings (`infra/variables.sh`)
+All settings are in `infra/variables.sh`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SUBSCRIPTION_ID` | - | Your Azure subscription ID |
-| `RESOURCE_GROUP` | `airflow-rg` | Azure resource group name |
+| `SUBSCRIPTION_ID` | - | **Required**: Your Azure subscription |
+| `RESOURCE_GROUP` | `airflow-rg` | Azure resource group |
 | `LOCATION` | `eastus2` | Azure region |
-| `VM_SIZE` | `Standard_D4s_v3` | VM size (4 vCPU, 16 GB RAM) |
-| `OS_DISK_SIZE` | `128` | OS disk size in GB |
-| `ADMIN_USERNAME` | `azureuser` | SSH username |
+| `VM_SIZE` | `Standard_D4s_v3` | VM size (4 vCPU, 16 GB) |
+| `ALLOW_ALL_IPS` | `true` | Open firewall to all IPs |
+| `STORAGE_ACCOUNT_NAME` | `trinitylake` | Data lake storage name |
 
-### Airflow Settings (`airflow/.env`)
+## Current Deployment
 
-| Variable | Description |
-|----------|-------------|
-| `AIRFLOW_UID` | User ID for Airflow containers (default: 50000) |
-| `AIRFLOW_FERNET_KEY` | Encryption key for sensitive data |
-| `POSTGRES_PASSWORD` | PostgreSQL database password |
-| `AIRFLOW_ADMIN_USER` | Admin username |
-| `AIRFLOW_ADMIN_PASSWORD` | Admin password |
-| `_PIP_ADDITIONAL_REQUIREMENTS` | Extra Python packages to install |
+| Resource | Value |
+|----------|-------|
+| VM IP | `172.200.54.159` |
+| Airflow URL | http://172.200.54.159:8080 |
+| Data Lake | `gaaborotrinity` |
+| SSH | `ssh -i ~/.ssh/airflow_vm_key azureuser@172.200.54.159` |
+
+### Data Lake URLs
+
+```
+Bronze: abfss://bronze@gaaborotrinity.dfs.core.windows.net/
+Silver: abfss://silver@gaaborotrinity.dfs.core.windows.net/
+Gold:   abfss://gold@gaaborotrinity.dfs.core.windows.net/
+```
 
 ## Operations
 
-### SSH into VM
-
 ```bash
+# SSH into VM
 ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP>
-```
 
-### View logs
+# View Airflow logs
+cd /opt/airflow && docker-compose logs -f
 
-```bash
-cd /opt/airflow
-docker-compose logs -f airflow-webserver
-docker-compose logs -f airflow-scheduler
-```
+# Restart Airflow
+cd /opt/airflow && docker-compose restart
 
-### Restart Airflow
-
-```bash
-cd /opt/airflow
-docker-compose restart
-```
-
-### Stop Airflow
-
-```bash
-cd /opt/airflow
-docker-compose down
-```
-
-### Update Airflow
-
-```bash
-cd /opt/airflow
-docker-compose pull
-docker-compose up -d
-```
-
-### Add DAGs
-
-Copy your DAG files to `/opt/airflow/dags/` on the VM:
-
-```bash
+# Deploy new DAGs
 scp -i ~/.ssh/airflow_vm_key my_dag.py azureuser@<VM_IP>:/opt/airflow/dags/
 ```
 
 ## Costs
 
-Estimated monthly cost: **~$163**
-
-| Resource | Cost |
-|----------|------|
+| Resource | Monthly Cost |
+|----------|-------------|
 | VM (Standard_D4s_v3) | ~$140 |
-| Storage (128 GB Premium SSD) | ~$20 |
-| Static Public IP | ~$3 |
-
-### Cost optimization options
-
-- Use `Standard_D2s_v3` for lighter workloads (~$70/month)
-- Use Standard SSD instead of Premium (~$10/month)
-- Deallocate VM when not in use
+| Storage (128 GB SSD) | ~$20 |
+| Data Lake (pay per use) | ~$5-20 |
+| Static IP | ~$3 |
+| **Total** | **~$170** |
 
 ## Cleanup
 
-Delete all Azure resources:
-
 ```bash
+# Delete everything
 az group delete --name airflow-rg --yes --no-wait
 ```
 
-This removes the VM, networking, storage, and all associated resources.
-
 ## Troubleshooting
 
-### Cannot access Airflow UI
-
-1. Check VM is running: `az vm show -g airflow-rg -n airflow-vm --query powerState`
-2. Check your IP is allowed: `az network nsg rule list -g airflow-rg --nsg-name airflow-nsg -o table`
-3. Check Airflow is healthy: `ssh ... 'curl http://localhost:8080/health'`
-
-### Airflow containers not starting
-
+**Can't access Airflow UI?**
 ```bash
-ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP>
-cd /opt/airflow
-docker-compose logs
+# Check VM is running
+az vm show -g airflow-rg -n airflow-vm --query powerState
+
+# Check firewall allows your IP
+az network nsg rule list -g airflow-rg --nsg-name airflow-nsg -o table
+
+# Open to all IPs if needed
+az network nsg rule update -g airflow-rg --nsg-name airflow-nsg \
+  -n AllowAirflowUI --source-address-prefixes '*'
 ```
 
-### Permission denied errors
-
+**Provider not registered?**
 ```bash
-# On the VM, ensure correct ownership
-sudo chown -R 50000:0 /opt/airflow/{dags,logs,plugins}
+az provider register --namespace Microsoft.Storage --wait
+az provider register --namespace Microsoft.Network --wait
+az provider register --namespace Microsoft.Compute --wait
 ```
 
 ## License

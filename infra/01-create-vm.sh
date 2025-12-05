@@ -9,23 +9,35 @@ echo "=== Azure Airflow VM Setup ==="
 echo "Resource Group: $RESOURCE_GROUP"
 echo "Location: $LOCATION"
 echo "VM Size: $VM_SIZE"
+echo "Allow All IPs: $ALLOW_ALL_IPS"
 echo ""
 
 # Check subscription ID is set
 if [ -z "$SUBSCRIPTION_ID" ]; then
     echo "ERROR: SUBSCRIPTION_ID is not set."
-    echo "Set it with: export SUBSCRIPTION_ID=\"your-subscription-id\""
+    echo ""
+    echo "Set it with:"
+    echo "  export SUBSCRIPTION_ID=\"your-subscription-id\""
+    echo ""
     echo "Or edit infra/variables.sh"
     exit 1
 fi
 
 # Check if logged in to Azure
 echo "Checking Azure login status..."
-az account show > /dev/null 2>&1 || { echo "Please run 'az login' first"; exit 1; }
+if ! az account show > /dev/null 2>&1; then
+    echo "Not logged in. Please run 'az login' first."
+    exit 1
+fi
 
 # Set subscription
 echo "Setting subscription..."
 az account set --subscription "$SUBSCRIPTION_ID"
+
+# Register required providers (learned from troubleshooting)
+echo "Registering required Azure providers..."
+az provider register --namespace Microsoft.Network --wait || true
+az provider register --namespace Microsoft.Compute --wait || true
 
 # Generate SSH key if it doesn't exist
 if [ ! -f "$SSH_KEY_PATH" ]; then
@@ -37,7 +49,8 @@ fi
 echo "Creating Resource Group..."
 az group create \
     --name "$RESOURCE_GROUP" \
-    --location "$LOCATION"
+    --location "$LOCATION" \
+    --output none
 
 # Create Virtual Network
 echo "Creating Virtual Network..."
@@ -46,42 +59,51 @@ az network vnet create \
     --name "$VNET_NAME" \
     --address-prefix 10.0.0.0/16 \
     --subnet-name "$SUBNET_NAME" \
-    --subnet-prefix 10.0.1.0/24
+    --subnet-prefix 10.0.1.0/24 \
+    --output none
 
 # Create Network Security Group
 echo "Creating Network Security Group..."
 az network nsg create \
     --resource-group "$RESOURCE_GROUP" \
-    --name "$NSG_NAME"
+    --name "$NSG_NAME" \
+    --output none
 
-# Get current public IP for SSH restriction
-MY_IP=$(curl -s https://ipinfo.io/ip)
-echo "Your public IP: $MY_IP"
+# Determine source IP for firewall rules
+if [ "$ALLOW_ALL_IPS" = "true" ]; then
+    SOURCE_IP="*"
+    echo "Firewall: Allowing access from ANY IP"
+else
+    SOURCE_IP=$(curl -s https://ipinfo.io/ip)/32
+    echo "Firewall: Restricting to your IP ($SOURCE_IP)"
+fi
 
 # Add NSG rules
 echo "Adding NSG rules..."
 
-# SSH - restricted to your IP
+# SSH
 az network nsg rule create \
     --resource-group "$RESOURCE_GROUP" \
     --nsg-name "$NSG_NAME" \
     --name "AllowSSH" \
     --priority 1000 \
-    --source-address-prefixes "$MY_IP/32" \
+    --source-address-prefixes "$SOURCE_IP" \
     --destination-port-ranges 22 \
     --access Allow \
-    --protocol Tcp
+    --protocol Tcp \
+    --output none
 
-# Airflow UI - restricted to your IP
+# Airflow UI
 az network nsg rule create \
     --resource-group "$RESOURCE_GROUP" \
     --nsg-name "$NSG_NAME" \
     --name "AllowAirflowUI" \
     --priority 1010 \
-    --source-address-prefixes "$MY_IP/32" \
+    --source-address-prefixes "$SOURCE_IP" \
     --destination-port-ranges 8080 \
     --access Allow \
-    --protocol Tcp
+    --protocol Tcp \
+    --output none
 
 # Create Public IP
 echo "Creating Public IP..."
@@ -89,7 +111,8 @@ az network public-ip create \
     --resource-group "$RESOURCE_GROUP" \
     --name "$PUBLIC_IP_NAME" \
     --sku Standard \
-    --allocation-method Static
+    --allocation-method Static \
+    --output none
 
 # Create NIC
 echo "Creating Network Interface..."
@@ -99,7 +122,8 @@ az network nic create \
     --vnet-name "$VNET_NAME" \
     --subnet "$SUBNET_NAME" \
     --network-security-group "$NSG_NAME" \
-    --public-ip-address "$PUBLIC_IP_NAME"
+    --public-ip-address "$PUBLIC_IP_NAME" \
+    --output none
 
 # Create VM
 echo "Creating Virtual Machine (this may take a few minutes)..."
@@ -112,7 +136,8 @@ az vm create \
     --os-disk-size-gb "$OS_DISK_SIZE" \
     --storage-sku Premium_LRS \
     --admin-username "$ADMIN_USERNAME" \
-    --ssh-key-values "$SSH_KEY_PATH.pub"
+    --ssh-key-values "$SSH_KEY_PATH.pub" \
+    --output none
 
 # Get public IP address
 PUBLIC_IP=$(az network public-ip show \
@@ -122,13 +147,26 @@ PUBLIC_IP=$(az network public-ip show \
     --output tsv)
 
 echo ""
-echo "=== VM Created Successfully ==="
+echo "=============================================="
+echo "         VM Created Successfully!            "
+echo "=============================================="
+echo ""
 echo "Public IP: $PUBLIC_IP"
-echo "SSH Command: ssh -i $SSH_KEY_PATH $ADMIN_USERNAME@$PUBLIC_IP"
+echo ""
+echo "SSH Command:"
+echo "  ssh -i $SSH_KEY_PATH $ADMIN_USERNAME@$PUBLIC_IP"
 echo ""
 echo "Next steps:"
-echo "1. Copy 02-setup-vm.sh and airflow/ folder to the VM"
-echo "2. Run 02-setup-vm.sh on the VM to install Docker and Airflow"
+echo "  1. Copy files to VM:"
+echo "     scp -i $SSH_KEY_PATH -r ../airflow 02-setup-vm.sh $ADMIN_USERNAME@$PUBLIC_IP:~/"
 echo ""
-echo "Quick copy command:"
-echo "scp -i $SSH_KEY_PATH -r ../airflow 02-setup-vm.sh $ADMIN_USERNAME@$PUBLIC_IP:~/"
+echo "  2. SSH into VM and run setup:"
+echo "     ssh -i $SSH_KEY_PATH $ADMIN_USERNAME@$PUBLIC_IP"
+echo "     chmod +x 02-setup-vm.sh && ./02-setup-vm.sh"
+echo ""
+echo "  3. Start Airflow:"
+echo "     cd /opt/airflow && docker-compose up -d"
+echo ""
+echo "  4. Access Airflow UI:"
+echo "     http://$PUBLIC_IP:8080"
+echo ""
