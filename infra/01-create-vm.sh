@@ -11,6 +11,14 @@ echo "Location: $LOCATION"
 echo "VM Size: $VM_SIZE"
 echo ""
 
+# Check subscription ID is set
+if [ -z "$SUBSCRIPTION_ID" ]; then
+    echo "ERROR: SUBSCRIPTION_ID is not set."
+    echo "Set it with: export SUBSCRIPTION_ID=\"your-subscription-id\""
+    echo "Or edit infra/variables.sh"
+    exit 1
+fi
+
 # Check if logged in to Azure
 echo "Checking Azure login status..."
 az account show > /dev/null 2>&1 || { echo "Please run 'az login' first"; exit 1; }

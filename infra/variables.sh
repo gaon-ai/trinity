@@ -3,7 +3,7 @@
 # Update these values before running the scripts
 
 # Azure Settings
-export SUBSCRIPTION_ID="a41e49dd-5828-40a3-837c-cf2327a4988c"
+export SUBSCRIPTION_ID="${SUBSCRIPTION_ID:-}"  # Set via: export SUBSCRIPTION_ID="your-id"
 export RESOURCE_GROUP="airflow-rg"
 export LOCATION="eastus2"
 
