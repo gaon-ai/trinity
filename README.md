@@ -29,9 +29,27 @@ A lean data lakehouse platform on Azure for BI and analytics.
 | 1. Source | Azure SQL DB / ERP | - |
 | 2. Orchestration | Airflow on Azure VM | ✅ |
 | 3. Lakehouse | ADLS Gen2 (Bronze/Silver/Gold) | ✅ |
-| 4. Transform | Airflow + Python/Pandas | - |
+| 4. Transform | Airflow + Python/Pandas | ✅ |
 | 5. Serving | Azure SQL DB | - |
 | 6. BI | Power BI | - |
+
+## Current Deployment
+
+| Resource | Value |
+|----------|-------|
+| **Airflow URL** | http://172.200.54.159:8080 |
+| **Username** | `admin` |
+| **Password** | `7YZPlNypphFXiHhq` |
+| **SSH** | `ssh -i ~/.ssh/airflow_vm_key azureuser@172.200.54.159` |
+| **Data Lake** | `gaaborotrinity` |
+
+### Data Lake URLs (ABFS)
+
+```
+Bronze: abfss://bronze@gaaborotrinity.dfs.core.windows.net/
+Silver: abfss://silver@gaaborotrinity.dfs.core.windows.net/
+Gold:   abfss://gold@gaaborotrinity.dfs.core.windows.net/
+```
 
 ## Prerequisites
 
@@ -47,7 +65,7 @@ brew install azure-cli
 az login
 ```
 
-## Quick Start
+## Quick Start (From Scratch)
 
 ### 1. Clone and configure
 
@@ -59,7 +77,7 @@ cd trinity
 export SUBSCRIPTION_ID="your-subscription-id"
 ```
 
-### 2. Create the VM (Airflow)
+### 2. Create the VM
 
 ```bash
 cd infra
@@ -70,26 +88,46 @@ chmod +x *.sh
 ### 3. Setup the VM
 
 ```bash
-# Copy files to VM (use the IP from step 2)
+# Copy files to VM (use IP from step 2)
 scp -i ~/.ssh/airflow_vm_key -r ../airflow 02-setup-vm.sh azureuser@<VM_IP>:~/
 
 # SSH and run setup
 ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP>
 chmod +x 02-setup-vm.sh && ./02-setup-vm.sh
 
-# Start Airflow
-cd /opt/airflow && docker-compose up -d
+# Build and start Airflow
+cd /opt/airflow
+docker-compose build
+docker-compose up -d
 ```
 
 ### 4. Create Data Lake
 
 ```bash
+# Back on local machine
+cd infra
 ./03-create-datalake.sh
 ```
 
-### 5. Access Airflow
+### 5. Configure Data Lake credentials on VM
 
-Open `http://<VM_IP>:8080` - credentials are shown during setup.
+```bash
+# Add storage credentials to Airflow
+ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP>
+
+# Append to .env (replace with your actual key)
+cat >> /opt/airflow/.env << 'EOF'
+AZURE_STORAGE_ACCOUNT_NAME=your_storage_account
+AZURE_STORAGE_ACCOUNT_KEY=your_storage_key
+EOF
+
+# Restart Airflow
+cd /opt/airflow && docker-compose restart
+```
+
+### 6. Access Airflow
+
+Open `http://<VM_IP>:8080` - credentials shown during VM setup.
 
 ## Project Structure
 
@@ -101,13 +139,44 @@ trinity/
 │   ├── 02-setup-vm.sh        # Installs Docker + Airflow on VM
 │   └── 03-create-datalake.sh # Creates ADLS Gen2 with medallion layers
 ├── airflow/
+│   ├── Dockerfile            # Custom Airflow image with Azure libs
 │   ├── docker-compose.yaml   # Airflow services
 │   ├── .env.example          # Environment template
 │   └── dags/
-│       └── example_dag.py    # Sample DAG
+│       ├── example_dag.py        # Simple test DAG
+│       └── datalake_sample_dag.py # Medallion architecture demo
 ├── docs/
 │   └── infrastructure-request.md  # Template for infra team
 └── README.md
+```
+
+## Sample DAG: Medallion Architecture
+
+The `datalake_sample` DAG demonstrates the Bronze → Silver → Gold pattern:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ write_to_bronze │───▶│transform_to_silver│───▶│aggregate_to_gold│
+│   (raw JSON)    │    │  (cleaned CSV)   │    │  (aggregates)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+| Layer | Path | Content |
+|-------|------|---------|
+| Bronze | `erp/sales/date=YYYY-MM-DD/sales_raw.json` | Raw sales data |
+| Silver | `erp/sales/date=YYYY-MM-DD/sales_cleaned.csv` | Cleaned + calculated fields |
+| Gold | `analytics/sales_by_region/.../data.csv` | Regional aggregates |
+| Gold | `analytics/sales_by_product/.../data.csv` | Product aggregates |
+| Gold | `serving/daily_summary/.../summary.json` | Daily summary for BI |
+
+### Trigger the DAG
+
+```bash
+# Via CLI
+ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP> \
+  'cd /opt/airflow && docker-compose exec -T airflow-scheduler airflow dags trigger datalake_sample'
+
+# Or via UI at http://<VM_IP>:8080
 ```
 
 ## Configuration
@@ -123,37 +192,44 @@ All settings are in `infra/variables.sh`:
 | `ALLOW_ALL_IPS` | `true` | Open firewall to all IPs |
 | `STORAGE_ACCOUNT_NAME` | `trinitylake` | Data lake storage name |
 
-## Current Deployment
-
-| Resource | Value |
-|----------|-------|
-| VM IP | `172.200.54.159` |
-| Airflow URL | http://172.200.54.159:8080 |
-| Data Lake | `gaaborotrinity` |
-| SSH | `ssh -i ~/.ssh/airflow_vm_key azureuser@172.200.54.159` |
-
-### Data Lake URLs
-
-```
-Bronze: abfss://bronze@gaaborotrinity.dfs.core.windows.net/
-Silver: abfss://silver@gaaborotrinity.dfs.core.windows.net/
-Gold:   abfss://gold@gaaborotrinity.dfs.core.windows.net/
-```
-
 ## Operations
 
+### SSH into VM
+
 ```bash
-# SSH into VM
-ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP>
+ssh -i ~/.ssh/airflow_vm_key azureuser@172.200.54.159
+```
 
-# View Airflow logs
-cd /opt/airflow && docker-compose logs -f
+### View Airflow logs
 
-# Restart Airflow
+```bash
+cd /opt/airflow && docker-compose logs -f airflow-scheduler
+```
+
+### Restart Airflow
+
+```bash
 cd /opt/airflow && docker-compose restart
+```
 
-# Deploy new DAGs
-scp -i ~/.ssh/airflow_vm_key my_dag.py azureuser@<VM_IP>:/opt/airflow/dags/
+### Rebuild Airflow (after Dockerfile changes)
+
+```bash
+cd /opt/airflow && docker-compose down && docker-compose build --no-cache && docker-compose up -d
+```
+
+### Deploy new DAGs
+
+```bash
+scp -i ~/.ssh/airflow_vm_key my_dag.py azureuser@172.200.54.159:~/
+ssh -i ~/.ssh/airflow_vm_key azureuser@172.200.54.159 'sudo cp ~/my_dag.py /opt/airflow/dags/ && sudo chown 50000:0 /opt/airflow/dags/my_dag.py'
+```
+
+### List Data Lake files
+
+```bash
+STORAGE_KEY=$(az storage account keys list -g airflow-rg -n gaaborotrinity --query '[0].value' -o tsv)
+az storage fs file list --file-system bronze --account-name gaaborotrinity --account-key "$STORAGE_KEY" --recursive -o table
 ```
 
 ## Costs
@@ -175,24 +251,72 @@ az group delete --name airflow-rg --yes --no-wait
 
 ## Troubleshooting
 
-**Can't access Airflow UI?**
+### Can't access Airflow UI
+
 ```bash
-# Check VM is running
+# 1. Check VM is running
 az vm show -g airflow-rg -n airflow-vm --query powerState
 
-# Check firewall allows your IP
+# 2. Check firewall
 az network nsg rule list -g airflow-rg --nsg-name airflow-nsg -o table
 
-# Open to all IPs if needed
+# 3. Open to all IPs if needed
 az network nsg rule update -g airflow-rg --nsg-name airflow-nsg \
   -n AllowAirflowUI --source-address-prefixes '*'
 ```
 
-**Provider not registered?**
+### Azure provider not registered
+
 ```bash
 az provider register --namespace Microsoft.Storage --wait
 az provider register --namespace Microsoft.Network --wait
 az provider register --namespace Microsoft.Compute --wait
+```
+
+### Storage account name taken
+
+Storage account names must be globally unique. The script auto-adds a random suffix if the name is taken. Or set a custom name:
+
+```bash
+export STORAGE_ACCOUNT_NAME="myuniquename123"
+./03-create-datalake.sh
+```
+
+### Airflow init fails with pip error
+
+This happens when using `_PIP_ADDITIONAL_REQUIREMENTS` with the init container. Solution: use a custom Dockerfile (already implemented):
+
+```dockerfile
+FROM apache/airflow:2.8.1
+USER airflow
+RUN pip install --no-cache-dir azure-storage-file-datalake pandas pyarrow
+```
+
+### Permission denied when copying DAGs
+
+```bash
+# Fix ownership
+ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP> \
+  'sudo chown -R 50000:0 /opt/airflow/dags'
+```
+
+### Docker permission denied
+
+```bash
+# Add user to docker group (already done in setup, but if needed)
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+### DAG not appearing in Airflow UI
+
+```bash
+# Check for syntax errors
+ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP> \
+  'cd /opt/airflow && docker-compose exec -T airflow-scheduler python /opt/airflow/dags/your_dag.py'
+
+# Check scheduler logs
+cd /opt/airflow && docker-compose logs airflow-scheduler | grep -i error
 ```
 
 ## License

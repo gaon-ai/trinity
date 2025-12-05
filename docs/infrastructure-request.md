@@ -1,8 +1,10 @@
-# Infrastructure Request: Airflow VM
+# Infrastructure Request: Airflow VM for Data Lakehouse
 
 ## Overview
 
-We need an Azure VM to run Apache Airflow for workflow orchestration.
+We need an Azure VM to run Apache Airflow for orchestrating data pipelines in our lakehouse architecture.
+
+**Purpose:** ETL/ELT orchestration for Bronze → Silver → Gold data transformations
 
 ---
 
@@ -23,8 +25,10 @@ We need an Azure VM to run Apache Airflow for workflow orchestration.
 
 | Port | Protocol | Source | Purpose |
 |------|----------|--------|---------|
-| 22 | TCP | VPN range only | SSH access |
-| 8080 | TCP | VPN range only | Airflow Web UI |
+| 22 | TCP | VPN range or specific IPs | SSH access |
+| 8080 | TCP | VPN range or all* | Airflow Web UI |
+
+*Note: For development/testing, we may need port 8080 open to all IPs temporarily.
 
 ---
 
@@ -34,7 +38,7 @@ We need an Azure VM to run Apache Airflow for workflow orchestration.
 |------|-------|
 | Username | `azureuser` |
 | Auth method | SSH public key |
-| Permissions | sudo access, docker group |
+| Permissions | sudo access, docker group membership |
 
 **SSH Public Key** (to be added to VM):
 ```
@@ -80,13 +84,27 @@ sudo chown -R azureuser:azureuser /opt/airflow
 
 ---
 
+## Additional: Data Lake Storage (ADLS Gen2)
+
+We also need Azure Data Lake Storage Gen2 for our lakehouse:
+
+| Requirement | Value |
+|-------------|-------|
+| Storage Type | ADLS Gen2 (hierarchical namespace enabled) |
+| SKU | Standard_LRS |
+| Containers | `bronze`, `silver`, `gold` |
+| Access | Storage account key or managed identity |
+
+---
+
 ## Deliverables
 
 Please provide:
 
 1. VM public IP address
 2. Confirmation of firewall rules
-3. SSH key or Service Principal credentials (via secure channel)
+3. SSH key or credentials (via secure channel)
+4. Storage account name and key (if creating ADLS)
 
 ---
 
@@ -96,8 +114,26 @@ Please provide:
 |----------|------|
 | VM (Standard_D4s_v3) | ~$140 |
 | Storage (128 GB Premium SSD) | ~$20 |
+| Data Lake (ADLS Gen2, pay per use) | ~$5-20 |
 | Static Public IP | ~$3 |
-| **Total** | **~$163** |
+| **Total** | **~$170** |
+
+---
+
+## Common Issues to Avoid
+
+Based on our experience, please ensure:
+
+1. **Azure providers are registered:**
+   ```bash
+   az provider register --namespace Microsoft.Storage
+   az provider register --namespace Microsoft.Network
+   az provider register --namespace Microsoft.Compute
+   ```
+
+2. **Storage account names are globally unique** (lowercase, no hyphens, 3-24 chars)
+
+3. **Firewall rules allow access** - if IP-restricted, ensure our IPs are whitelisted
 
 ---
 
