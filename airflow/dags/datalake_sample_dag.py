@@ -1,0 +1,195 @@
+"""
+Sample DAG that writes data to Azure Data Lake Storage Gen2.
+
+This DAG demonstrates:
+1. Generating sample sales data
+2. Writing to Bronze layer (raw)
+3. Transforming and writing to Silver layer (cleaned)
+4. Aggregating and writing to Gold layer (business-ready)
+"""
+import os
+import json
+from datetime import datetime, timedelta
+
+import pandas as pd
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from azure.storage.filedatalake import DataLakeServiceClient
+
+
+# Data Lake configuration from environment
+STORAGE_ACCOUNT_NAME = os.environ.get('AZURE_STORAGE_ACCOUNT_NAME', 'gaaborotrinity')
+STORAGE_ACCOUNT_KEY = os.environ.get('AZURE_STORAGE_ACCOUNT_KEY', '')
+
+
+def get_datalake_client():
+    """Create Data Lake service client."""
+    account_url = f"https://{STORAGE_ACCOUNT_NAME}.dfs.core.windows.net"
+    return DataLakeServiceClient(account_url=account_url, credential=STORAGE_ACCOUNT_KEY)
+
+
+def write_to_datalake(container: str, path: str, data: str):
+    """Write data to Data Lake."""
+    service_client = get_datalake_client()
+    file_system_client = service_client.get_file_system_client(container)
+    file_client = file_system_client.get_file_client(path)
+    file_client.upload_data(data, overwrite=True)
+    print(f"Wrote data to {container}/{path}")
+
+
+def generate_sample_data(**context):
+    """Generate sample sales data and write to Bronze layer."""
+    execution_date = context['ds']
+
+    # Sample sales data
+    data = {
+        'order_id': [1001, 1002, 1003, 1004, 1005],
+        'customer_id': ['C001', 'C002', 'C001', 'C003', 'C002'],
+        'product': ['Widget A', 'Widget B', 'Widget A', 'Widget C', 'Widget B'],
+        'quantity': [2, 1, 3, 1, 2],
+        'unit_price': [29.99, 49.99, 29.99, 79.99, 49.99],
+        'order_date': [execution_date] * 5,
+        'region': ['East', 'West', 'East', 'North', 'West'],
+    }
+
+    df = pd.DataFrame(data)
+
+    # Write raw JSON to Bronze layer
+    json_data = df.to_json(orient='records', indent=2)
+    bronze_path = f"erp/sales/date={execution_date}/sales_raw.json"
+    write_to_datalake('bronze', bronze_path, json_data)
+
+    # Return path for next task
+    return bronze_path
+
+
+def transform_to_silver(**context):
+    """Read from Bronze, clean/transform, write to Silver layer."""
+    execution_date = context['ds']
+
+    # In a real scenario, you'd read from Bronze
+    # For this example, we'll recreate and transform the data
+    data = {
+        'order_id': [1001, 1002, 1003, 1004, 1005],
+        'customer_id': ['C001', 'C002', 'C001', 'C003', 'C002'],
+        'product': ['Widget A', 'Widget B', 'Widget A', 'Widget C', 'Widget B'],
+        'quantity': [2, 1, 3, 1, 2],
+        'unit_price': [29.99, 49.99, 29.99, 79.99, 49.99],
+        'order_date': [execution_date] * 5,
+        'region': ['East', 'West', 'East', 'North', 'West'],
+    }
+
+    df = pd.DataFrame(data)
+
+    # Transform: Add calculated fields
+    df['total_amount'] = df['quantity'] * df['unit_price']
+    df['processed_at'] = datetime.now().isoformat()
+
+    # Write cleaned CSV to Silver layer
+    csv_data = df.to_csv(index=False)
+    silver_path = f"erp/sales/date={execution_date}/sales_cleaned.csv"
+    write_to_datalake('silver', silver_path, csv_data)
+
+    return silver_path
+
+
+def aggregate_to_gold(**context):
+    """Aggregate data and write to Gold layer for BI consumption."""
+    execution_date = context['ds']
+
+    # Sample transformed data
+    data = {
+        'order_id': [1001, 1002, 1003, 1004, 1005],
+        'customer_id': ['C001', 'C002', 'C001', 'C003', 'C002'],
+        'product': ['Widget A', 'Widget B', 'Widget A', 'Widget C', 'Widget B'],
+        'quantity': [2, 1, 3, 1, 2],
+        'unit_price': [29.99, 49.99, 29.99, 79.99, 49.99],
+        'region': ['East', 'West', 'East', 'North', 'West'],
+    }
+
+    df = pd.DataFrame(data)
+    df['total_amount'] = df['quantity'] * df['unit_price']
+
+    # Aggregate: Sales by region
+    region_summary = df.groupby('region').agg({
+        'order_id': 'count',
+        'quantity': 'sum',
+        'total_amount': 'sum'
+    }).reset_index()
+    region_summary.columns = ['region', 'order_count', 'total_quantity', 'total_revenue']
+    region_summary['report_date'] = execution_date
+
+    # Aggregate: Sales by product
+    product_summary = df.groupby('product').agg({
+        'order_id': 'count',
+        'quantity': 'sum',
+        'total_amount': 'sum'
+    }).reset_index()
+    product_summary.columns = ['product', 'order_count', 'total_quantity', 'total_revenue']
+    product_summary['report_date'] = execution_date
+
+    # Write aggregated data to Gold layer
+    region_csv = region_summary.to_csv(index=False)
+    write_to_datalake('gold', f"analytics/sales_by_region/date={execution_date}/data.csv", region_csv)
+
+    product_csv = product_summary.to_csv(index=False)
+    write_to_datalake('gold', f"analytics/sales_by_product/date={execution_date}/data.csv", product_csv)
+
+    # Write a summary for serving layer (could be loaded to Azure SQL)
+    summary = {
+        'report_date': execution_date,
+        'total_orders': len(df),
+        'total_revenue': float(df['total_amount'].sum()),
+        'regions': region_summary.to_dict(orient='records'),
+        'products': product_summary.to_dict(orient='records'),
+        'generated_at': datetime.now().isoformat()
+    }
+
+    summary_json = json.dumps(summary, indent=2)
+    write_to_datalake('gold', f"serving/daily_summary/date={execution_date}/summary.json", summary_json)
+
+    print(f"Gold layer aggregations complete for {execution_date}")
+    print(f"Total Revenue: ${summary['total_revenue']:.2f}")
+
+    return summary
+
+
+default_args = {
+    'owner': 'trinity',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+with DAG(
+    'datalake_sample',
+    default_args=default_args,
+    description='Sample DAG that writes to Azure Data Lake (Bronze → Silver → Gold)',
+    schedule_interval='@daily',
+    start_date=datetime(2024, 1, 1),
+    catchup=False,
+    tags=['datalake', 'sample', 'medallion'],
+) as dag:
+
+    # Task 1: Generate sample data and write to Bronze
+    bronze_task = PythonOperator(
+        task_id='write_to_bronze',
+        python_callable=generate_sample_data,
+    )
+
+    # Task 2: Transform and write to Silver
+    silver_task = PythonOperator(
+        task_id='transform_to_silver',
+        python_callable=transform_to_silver,
+    )
+
+    # Task 3: Aggregate and write to Gold
+    gold_task = PythonOperator(
+        task_id='aggregate_to_gold',
+        python_callable=aggregate_to_gold,
+    )
+
+    # Pipeline: Bronze → Silver → Gold
+    bronze_task >> silver_task >> gold_task
