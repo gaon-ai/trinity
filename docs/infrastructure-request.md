@@ -56,33 +56,16 @@ Or grant sudo access and we will install ourselves.
 
 ## CI/CD Access
 
-For automated deployments, please provide **one** of the following:
-
-### Option 1: SSH Key (Simplest)
-
-Generate a dedicated SSH key pair for CI/CD:
+For automated deployments, please generate a dedicated SSH key pair:
 
 | Item | Details |
 |------|---------|
 | Key name | `airflow-cicd` |
 | Access | Read/write to `/opt/airflow/dags/` |
 
-Provide us:
-- Private key (securely)
+Provide us (via secure channel):
+- Private key
 - VM IP address
-
-### Option 2: Service Principal (Azure-native)
-
-Create a Service Principal with:
-
-| Role | Scope |
-|------|-------|
-| `Virtual Machine Contributor` | Resource group containing the VM |
-
-Provide us:
-- Client ID
-- Client Secret
-- Tenant ID
 
 ---
 
