@@ -142,10 +142,58 @@ cd /opt/airflow && docker-compose restart
 
 Open `http://<VM_IP>:8080` - credentials shown during VM setup.
 
+## CI/CD: Automated DAG Deployment
+
+DAGs are automatically deployed to the Airflow VM when changes are pushed to `main`.
+
+### How It Works
+
+```
+Push to main (airflow/** changed)
+         │
+         ▼
+   ┌─────────────┐
+   │  Validate   │ ─── python syntax check
+   │   DAGs      │
+   └─────────────┘
+         │ (pass)
+         ▼
+   ┌─────────────┐
+   │   Deploy    │ ─── rsync to VM
+   │   to VM     │
+   └─────────────┘
+```
+
+### Setup (One-time)
+
+Add these secrets to GitHub (Settings → Secrets → Actions):
+
+| Secret | Value |
+|--------|-------|
+| `AIRFLOW_VM_IP` | `172.200.54.159` |
+| `AIRFLOW_SSH_USER` | `azureuser` |
+| `AIRFLOW_SSH_KEY` | Contents of `~/.ssh/airflow_vm_key` |
+
+### What Gets Deployed
+
+- **DAG changes** (`airflow/dags/*`): Synced to VM, ownership fixed
+- **Dockerfile/docker-compose changes**: Containers rebuilt and restarted
+
+### Manual Deployment (if needed)
+
+```bash
+scp -i ~/.ssh/airflow_vm_key airflow/dags/*.py azureuser@172.200.54.159:~/
+ssh -i ~/.ssh/airflow_vm_key azureuser@172.200.54.159 \
+  'sudo cp ~/*.py /opt/airflow/dags/ && sudo chown -R 50000:0 /opt/airflow/dags/'
+```
+
 ## Project Structure
 
 ```
 trinity/
+├── .github/
+│   └── workflows/
+│       └── deploy-airflow.yml  # CI/CD pipeline
 ├── infra/
 │   ├── variables.sh          # All configuration in one place
 │   ├── 01-create-vm.sh       # Creates Azure VM for Airflow
@@ -159,8 +207,11 @@ trinity/
 │   └── dags/
 │       ├── example_dag.py        # Simple test DAG
 │       └── datalake_sample_dag.py # Medallion architecture demo
+├── scripts/
+│   └── synapse_setup.py      # Synapse configuration script
 ├── docs/
-│   └── infrastructure-request.md  # Template for infra team
+│   ├── infrastructure-request.md  # Template for infra team
+│   └── synapse-setup.md           # Synapse troubleshooting guide
 └── README.md
 ```
 
