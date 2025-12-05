@@ -14,13 +14,19 @@ A lean data lakehouse platform on Azure for BI and analytics.
 │  │   (ERP)     │    │    (VM)     │    │  │ Bronze  │ Silver │ Gold  │  │  │
 │  │             │    │             │    │  │  (raw)  │(clean) │ (agg) │  │  │
 │  └─────────────┘    └─────────────┘    │  └─────────┴────────┴───────┘  │  │
-│                            │           └─────────────────────────────────┘  │
-│                            │                          │                     │
-│                            ▼                          ▼                     │
-│                     ┌─────────────┐           ┌─────────────┐               │
-│                     │  Azure SQL  │◀──────────│  Power BI   │               │
-│                     │  (serving)  │           │             │               │
-│                     └─────────────┘           └─────────────┘               │
+│                            │           └───────────────┬────────────────┘  │
+│                            │                           │                   │
+│                            ▼                           ▼                   │
+│                     ┌─────────────┐           ┌─────────────────┐          │
+│                     │  Azure SQL  │           │     Synapse     │          │
+│                     │  (serving)  │           │   (Serverless)  │◀── SQL   │
+│                     └─────────────┘           └────────┬────────┘          │
+│                            │                           │                   │
+│                            └───────────┬───────────────┘                   │
+│                                        ▼                                   │
+│                                ┌─────────────┐                             │
+│                                │  Power BI   │                             │
+│                                └─────────────┘                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -30,8 +36,9 @@ A lean data lakehouse platform on Azure for BI and analytics.
 | 2. Orchestration | Airflow on Azure VM | ✅ |
 | 3. Lakehouse | ADLS Gen2 (Bronze/Silver/Gold) | ✅ |
 | 4. Transform | Airflow + Python/Pandas | ✅ |
-| 5. Serving | Azure SQL DB | - |
-| 6. BI | Power BI | - |
+| 5. Ad-hoc Query | Synapse Serverless SQL | ✅ |
+| 6. Serving | Azure SQL DB | - |
+| 7. BI | Power BI | - |
 
 ## Current Deployment
 
@@ -109,7 +116,13 @@ cd infra
 ./03-create-datalake.sh
 ```
 
-### 5. Configure Data Lake credentials on VM
+### 5. Create Synapse (Optional - for ad-hoc SQL queries)
+
+```bash
+./04-create-synapse.sh
+```
+
+### 6. Configure Data Lake credentials on VM
 
 ```bash
 # Add storage credentials to Airflow
@@ -125,7 +138,7 @@ EOF
 cd /opt/airflow && docker-compose restart
 ```
 
-### 6. Access Airflow
+### 7. Access Airflow
 
 Open `http://<VM_IP>:8080` - credentials shown during VM setup.
 
@@ -137,7 +150,8 @@ trinity/
 │   ├── variables.sh          # All configuration in one place
 │   ├── 01-create-vm.sh       # Creates Azure VM for Airflow
 │   ├── 02-setup-vm.sh        # Installs Docker + Airflow on VM
-│   └── 03-create-datalake.sh # Creates ADLS Gen2 with medallion layers
+│   ├── 03-create-datalake.sh # Creates ADLS Gen2 with medallion layers
+│   └── 04-create-synapse.sh  # Creates Synapse for ad-hoc SQL queries
 ├── airflow/
 │   ├── Dockerfile            # Custom Airflow image with Azure libs
 │   ├── docker-compose.yaml   # Airflow services
@@ -178,6 +192,50 @@ ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP> \
 
 # Or via UI at http://<VM_IP>:8080
 ```
+
+## Synapse: Ad-hoc SQL Queries
+
+Synapse Serverless SQL lets you query Data Lake files directly using SQL - no data loading required.
+
+### Setup
+
+```bash
+cd infra
+./04-create-synapse.sh
+```
+
+### Sample Queries
+
+Query CSV files in Silver layer:
+```sql
+SELECT TOP 100 *
+FROM OPENROWSET(
+    BULK 'https://gaaborotrinity.dfs.core.windows.net/silver/erp/sales/**/*.csv',
+    FORMAT = 'CSV',
+    HEADER_ROW = TRUE
+) AS sales
+```
+
+Query JSON files in Gold layer:
+```sql
+SELECT
+    JSON_VALUE(doc, '$.report_date') AS report_date,
+    JSON_VALUE(doc, '$.total_orders') AS total_orders,
+    JSON_VALUE(doc, '$.total_revenue') AS total_revenue
+FROM OPENROWSET(
+    BULK 'https://gaaborotrinity.dfs.core.windows.net/gold/serving/daily_summary/**/*.json',
+    FORMAT = 'CSV',
+    FIELDTERMINATOR = '0x0b',
+    FIELDQUOTE = '0x0b'
+) WITH (doc NVARCHAR(MAX)) AS rows
+```
+
+### Cost
+
+| Usage | Cost |
+|-------|------|
+| Data scanned | ~$5 per TB |
+| Minimum | $0 (pay only when you query) |
 
 ## Configuration
 
