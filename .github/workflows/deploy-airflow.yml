@@ -48,6 +48,10 @@ jobs:
           chmod 600 ~/.ssh/airflow_key
           ssh-keyscan -H ${{ secrets.AIRFLOW_VM_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
+      - name: Install rsync
+        run: |
+          sudo apt-get update && sudo apt-get install -y rsync
+
       - name: Deploy DAGs
         run: |
           echo "Deploying DAGs to Airflow VM..."
