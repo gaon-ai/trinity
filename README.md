@@ -37,8 +37,9 @@ A lean data lakehouse platform on Azure for BI and analytics.
 | 3. Lakehouse | ADLS Gen2 (Bronze/Silver/Gold) | ✅ |
 | 4. Transform | Airflow + Python/Pandas | ✅ |
 | 5. Ad-hoc Query | Synapse Serverless SQL | ✅ |
-| 6. Serving | Azure SQL DB | - |
-| 7. BI | Power BI | - |
+| 6. CI/CD | GitHub Actions | ✅ |
+| 7. Serving | Azure SQL DB | - |
+| 8. BI | Power BI | - |
 
 ## Current Deployment
 
@@ -49,6 +50,8 @@ A lean data lakehouse platform on Azure for BI and analytics.
 | **Password** | `7YZPlNypphFXiHhq` |
 | **SSH** | `ssh -i ~/.ssh/airflow_vm_key azureuser@172.200.54.159` |
 | **Data Lake** | `gaaborotrinity` |
+| **Synapse** | `trinitysynapse-ondemand.sql.azuresynapse.net` |
+| **Synapse DB** | `trinity` (use this, not `master`) |
 
 ### Data Lake URLs (ABFS)
 
@@ -187,6 +190,23 @@ ssh -i ~/.ssh/airflow_vm_key azureuser@172.200.54.159 \
   'sudo cp ~/*.py /opt/airflow/dags/ && sudo chown -R 50000:0 /opt/airflow/dags/'
 ```
 
+### Test Workflow Locally
+
+```bash
+# Install act (GitHub Actions local runner)
+brew install act
+
+# Test validate job only
+act -j validate --container-architecture linux/amd64
+
+# Test full deploy (requires secrets)
+act -j deploy \
+  --secret AIRFLOW_VM_IP="172.200.54.159" \
+  --secret AIRFLOW_SSH_USER="azureuser" \
+  --secret AIRFLOW_SSH_KEY="$(cat ~/.ssh/airflow_vm_key)" \
+  --container-architecture linux/amd64
+```
+
 ## Project Structure
 
 ```
@@ -251,34 +271,62 @@ Synapse Serverless SQL lets you query Data Lake files directly using SQL - no da
 ### Setup
 
 ```bash
+# 1. Create Synapse workspace
 cd infra
 ./04-create-synapse.sh
+
+# 2. Configure credentials (run once)
+python3 scripts/synapse_setup.py
 ```
+
+Or see `docs/synapse-setup.md` for manual setup steps.
 
 ### Sample Queries
 
+**Important:** Use the `trinity` database, not `master`.
+
 Query CSV files in Silver layer:
 ```sql
-SELECT TOP 100 *
+SELECT *
 FROM OPENROWSET(
-    BULK 'https://gaaborotrinity.dfs.core.windows.net/silver/erp/sales/**/*.csv',
+    BULK 'silver/erp/sales/date=2025-12-05/sales_cleaned.csv',
+    DATA_SOURCE = 'TrinityLake',
     FORMAT = 'CSV',
-    HEADER_ROW = TRUE
+    PARSER_VERSION = '2.0',
+    FIRSTROW = 2
+) WITH (
+    order_id VARCHAR(50),
+    customer_id VARCHAR(50),
+    product VARCHAR(100),
+    quantity VARCHAR(50),
+    unit_price VARCHAR(50),
+    order_date VARCHAR(50),
+    region VARCHAR(50),
+    total_amount VARCHAR(50),
+    processed_at VARCHAR(100)
 ) AS sales
 ```
 
-Query JSON files in Gold layer:
+Query with wildcard (single level only, no `**`):
 ```sql
-SELECT
-    JSON_VALUE(doc, '$.report_date') AS report_date,
-    JSON_VALUE(doc, '$.total_orders') AS total_orders,
-    JSON_VALUE(doc, '$.total_revenue') AS total_revenue
+SELECT *
 FROM OPENROWSET(
-    BULK 'https://gaaborotrinity.dfs.core.windows.net/gold/serving/daily_summary/**/*.json',
+    BULK 'silver/erp/sales/*/sales_cleaned.csv',
+    DATA_SOURCE = 'TrinityLake',
     FORMAT = 'CSV',
-    FIELDTERMINATOR = '0x0b',
-    FIELDQUOTE = '0x0b'
-) WITH (doc NVARCHAR(MAX)) AS rows
+    PARSER_VERSION = '2.0',
+    FIRSTROW = 2
+) WITH (
+    order_id VARCHAR(50),
+    customer_id VARCHAR(50),
+    product VARCHAR(100),
+    quantity VARCHAR(50),
+    unit_price VARCHAR(50),
+    order_date VARCHAR(50),
+    region VARCHAR(50),
+    total_amount VARCHAR(50),
+    processed_at VARCHAR(100)
+) AS sales
 ```
 
 ### Cost
@@ -287,6 +335,14 @@ FROM OPENROWSET(
 |-------|------|
 | Data scanned | ~$5 per TB |
 | Minimum | $0 (pay only when you query) |
+
+### Common Issues
+
+See `docs/synapse-setup.md` for troubleshooting:
+- Must use `trinity` database (not `master`)
+- Use `FIRSTROW = 2` instead of `HEADER_ROW = TRUE`
+- Use single `*` wildcards (not `**`)
+- Start with `VARCHAR` for all columns
 
 ## Configuration
 
