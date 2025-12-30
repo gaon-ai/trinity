@@ -44,7 +44,9 @@ def main():
         print(f"DAGs directory not found: {dags_path}")
         sys.exit(1)
 
-    dag_files = list(dags_path.glob("*.py"))
+    dag_files = list(dags_path.glob("**/*.py"))
+    # Exclude __init__.py files
+    dag_files = [f for f in dag_files if f.name != "__init__.py"]
 
     if not dag_files:
         print("No DAG files found")
@@ -55,7 +57,9 @@ def main():
     errors = []
 
     for dag_file in sorted(dag_files):
-        print(f"  {dag_file.name}:")
+        # Show relative path from dags directory
+        rel_path = dag_file.relative_to(dags_path)
+        print(f"  {rel_path}:")
 
         # Syntax check
         ok, msg = validate_syntax(dag_file)

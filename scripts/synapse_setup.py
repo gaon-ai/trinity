@@ -158,16 +158,70 @@ def setup_synapse():
         else:
             raise
 
-    # Test query
+    # Create views for Gold layer datasets
     print("\n" + "=" * 60)
-    print("Testing query on Data Lake...")
+    print("Creating views for Gold layer...")
     print("=" * 60 + "\n")
 
+    # View: sales_by_region (queries all partitions)
+    print("Creating view: sales_by_region...")
     try:
+        cursor.execute("DROP VIEW IF EXISTS sales_by_region")
         cursor.execute("""
+            CREATE VIEW sales_by_region AS
             SELECT *
             FROM OPENROWSET(
-                BULK 'silver/erp/sales/date=2025-12-05/sales_cleaned.csv',
+                BULK 'gold/sales_by_region/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                region VARCHAR(50),
+                order_count INT,
+                total_quantity INT,
+                total_revenue DECIMAL(18,2),
+                report_date VARCHAR(50)
+            ) AS data
+        """)
+        print("✅ View sales_by_region created!")
+    except pymssql.Error as e:
+        print(f"Error creating sales_by_region: {e}")
+
+    # View: sales_by_product (queries all partitions)
+    print("Creating view: sales_by_product...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS sales_by_product")
+        cursor.execute("""
+            CREATE VIEW sales_by_product AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'gold/sales_by_product/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                product VARCHAR(100),
+                order_count INT,
+                total_quantity INT,
+                total_revenue DECIMAL(18,2),
+                report_date VARCHAR(50)
+            ) AS data
+        """)
+        print("✅ View sales_by_product created!")
+    except pymssql.Error as e:
+        print(f"Error creating sales_by_product: {e}")
+
+    # View: silver_sales (cleaned sales data)
+    print("Creating view: silver_sales...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS silver_sales")
+        cursor.execute("""
+            CREATE VIEW silver_sales AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'silver/sales/*/cleaned.csv',
                 DATA_SOURCE = 'TrinityLake',
                 FORMAT = 'CSV',
                 PARSER_VERSION = '2.0',
@@ -176,30 +230,40 @@ def setup_synapse():
                 order_id VARCHAR(50),
                 customer_id VARCHAR(50),
                 product VARCHAR(100),
-                quantity VARCHAR(50),
-                unit_price VARCHAR(50),
+                quantity INT,
+                unit_price DECIMAL(18,2),
                 order_date VARCHAR(50),
                 region VARCHAR(50),
-                total_amount VARCHAR(50),
+                total_amount DECIMAL(18,2),
                 processed_at VARCHAR(100)
-            ) AS sales
+            ) AS data
         """)
+        print("✅ View silver_sales created!")
+    except pymssql.Error as e:
+        print(f"Error creating silver_sales: {e}")
 
+    # Test query
+    print("\n" + "=" * 60)
+    print("Testing views...")
+    print("=" * 60 + "\n")
+
+    try:
+        cursor.execute("SELECT TOP 5 * FROM sales_by_region")
         rows = cursor.fetchall()
 
         if rows:
-            print(f"{'order_id':<10} {'customer':<12} {'product':<12} {'qty':<5} {'region':<8} {'total':<10}")
-            print("-" * 60)
+            print("sales_by_region sample:")
+            print(f"{'region':<10} {'orders':<8} {'qty':<8} {'revenue':<12} {'date':<12}")
+            print("-" * 50)
             for row in rows:
-                print(f"{row[0]:<10} {row[1]:<12} {row[2]:<12} {row[3]:<5} {row[6]:<8} {row[7]:<10}")
-            print(f"\nTotal rows: {len(rows)}")
-            print("\n✅ Synapse setup complete! You can now query your Data Lake.")
+                print(f"{row[0]:<10} {row[1]:<8} {row[2]:<8} ${row[3]:<11.2f} {row[4]:<12}")
+            print(f"\n✅ Views created and working!")
         else:
-            print("Query returned 0 rows. Check if data exists in the path.")
+            print("Views created but no data yet. Run the Airflow DAG first.")
 
     except pymssql.Error as e:
         print(f"Query error: {e}")
-        print("\nSetup completed but test query failed. Check the file path.")
+        print("\nViews created but test failed. Run the Airflow DAG to populate data.")
 
     conn.close()
 
@@ -213,28 +277,26 @@ Database:        {CONFIG['database']}
 Data Source:     TrinityLake
 Credential:      TrinityStorageKey
 
-To query in Synapse Studio:
-1. Select database: {CONFIG['database']} (NOT master)
-2. Run:
+Views Created:
+- sales_by_region   (Gold layer - regional aggregates)
+- sales_by_product  (Gold layer - product aggregates)
+- silver_sales      (Silver layer - cleaned sales data)
 
-SELECT *
-FROM OPENROWSET(
-    BULK 'silver/erp/sales/*/sales_cleaned.csv',
-    DATA_SOURCE = 'TrinityLake',
-    FORMAT = 'CSV',
-    PARSER_VERSION = '2.0',
-    FIRSTROW = 2
-) WITH (
-    order_id VARCHAR(50),
-    customer_id VARCHAR(50),
-    product VARCHAR(100),
-    quantity VARCHAR(50),
-    unit_price VARCHAR(50),
-    order_date VARCHAR(50),
-    region VARCHAR(50),
-    total_amount VARCHAR(50),
-    processed_at VARCHAR(100)
-) AS sales
+To query in Synapse Studio or Power BI:
+1. Select database: {CONFIG['database']} (NOT master)
+2. Query the views directly:
+
+-- Gold layer aggregates
+SELECT * FROM sales_by_region;
+SELECT * FROM sales_by_product;
+
+-- Silver layer detail
+SELECT * FROM silver_sales;
+
+Power BI Connection:
+- Server: {CONFIG['server']}
+- Database: {CONFIG['database']}
+- Use SQL Server authentication or Azure AD
 """)
 
 
