@@ -19,7 +19,7 @@ if [ -z "$SUBSCRIPTION_ID" ]; then
     echo "Set it with:"
     echo "  export SUBSCRIPTION_ID=\"your-subscription-id\""
     echo ""
-    echo "Or edit infra/variables.sh"
+    echo "Or edit scripts/variables.sh"
     exit 1
 fi
 
