@@ -1,0 +1,4 @@
+
+# Local development
+airflow/.env
+airflow/.env.local
