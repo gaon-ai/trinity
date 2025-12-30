@@ -38,7 +38,7 @@ A lean data lakehouse platform on Azure for BI and analytics.
 | 4. Transform | Airflow + Python/Pandas | ✅ |
 | 5. Ad-hoc Query | Synapse Serverless SQL | ✅ |
 | 6. CI/CD | GitHub Actions | ✅ |
-| 7. Serving | Azure SQL DB | - |
+| 7. Serving | Azure SQL DB | ✅ |
 | 8. BI | Power BI | - |
 
 ## Current Deployment
@@ -52,6 +52,8 @@ A lean data lakehouse platform on Azure for BI and analytics.
 | **Data Lake** | `gaaborotrinity` |
 | **Synapse** | `trinitysynapse-ondemand.sql.azuresynapse.net` |
 | **Synapse DB** | `trinity` (use this, not `master`) |
+| **Azure SQL** | `trinitydb.database.windows.net` |
+| **Azure SQL DB** | `trinity` |
 
 ### Data Lake URLs (ABFS)
 
@@ -125,23 +127,33 @@ cd infra
 ./04-create-synapse.sh
 ```
 
-### 6. Configure Data Lake credentials on VM
+### 6. Create Azure SQL Database (for Power BI serving layer)
 
 ```bash
-# Add storage credentials to Airflow
+./05-create-azure-sql.sh
+```
+
+### 7. Configure Data Lake and SQL credentials on VM
+
+```bash
+# Add storage and SQL credentials to Airflow
 ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP>
 
-# Append to .env (replace with your actual key)
+# Append to .env (replace with your actual values)
 cat >> /opt/airflow/.env << 'EOF'
 AZURE_STORAGE_ACCOUNT_NAME=your_storage_account
 AZURE_STORAGE_ACCOUNT_KEY=your_storage_key
+AZURE_SQL_SERVER=trinitydb.database.windows.net
+AZURE_SQL_DATABASE=trinity
+AZURE_SQL_USER=sqladmin
+AZURE_SQL_PASSWORD=your_sql_password
 EOF
 
 # Restart Airflow
 cd /opt/airflow && docker-compose restart
 ```
 
-### 7. Access Airflow
+### 8. Access Airflow
 
 Open `http://<VM_IP>:8080` - credentials shown during VM setup.
 
@@ -219,7 +231,8 @@ trinity/
 │   ├── 01-create-vm.sh       # Creates Azure VM for Airflow
 │   ├── 02-setup-vm.sh        # Installs Docker + Airflow on VM
 │   ├── 03-create-datalake.sh # Creates ADLS Gen2 with medallion layers
-│   └── 04-create-synapse.sh  # Creates Synapse for ad-hoc SQL queries
+│   ├── 04-create-synapse.sh  # Creates Synapse for ad-hoc SQL queries
+│   └── 05-create-azure-sql.sh # Creates Azure SQL for Power BI serving
 ├── airflow/
 │   ├── Dockerfile            # Custom Airflow image with Azure libs
 │   ├── docker-compose.yaml   # Airflow services
@@ -231,28 +244,32 @@ trinity/
 │   └── synapse_setup.py      # Synapse configuration script
 ├── docs/
 │   ├── infrastructure-request.md  # Template for infra team
-│   └── synapse-setup.md           # Synapse troubleshooting guide
+│   ├── synapse-setup.md           # Synapse troubleshooting guide
+│   ├── azure-sql-setup.md         # Azure SQL setup guide
+│   └── replication-guide.md       # Full setup in new Azure account
 └── README.md
 ```
 
 ## Sample DAG: Medallion Architecture
 
-The `datalake_sample` DAG demonstrates the Bronze → Silver → Gold pattern:
+The `datalake_sample` DAG demonstrates the full Bronze → Silver → Gold → SQL pattern:
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ write_to_bronze │───▶│transform_to_silver│───▶│aggregate_to_gold│
-│   (raw JSON)    │    │  (cleaned CSV)   │    │  (aggregates)   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ write_to_bronze │───▶│transform_to_silver│───▶│aggregate_to_gold│───▶│   load_to_sql   │
+│   (raw JSON)    │    │  (cleaned CSV)   │    │  (aggregates)   │    │  (Power BI)     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-| Layer | Path | Content |
-|-------|------|---------|
+| Layer | Path/Table | Content |
+|-------|------------|---------|
 | Bronze | `erp/sales/date=YYYY-MM-DD/sales_raw.json` | Raw sales data |
 | Silver | `erp/sales/date=YYYY-MM-DD/sales_cleaned.csv` | Cleaned + calculated fields |
 | Gold | `analytics/sales_by_region/.../data.csv` | Regional aggregates |
 | Gold | `analytics/sales_by_product/.../data.csv` | Product aggregates |
 | Gold | `serving/daily_summary/.../summary.json` | Daily summary for BI |
+| SQL | `sales_by_region` table | Regional aggregates for Power BI |
+| SQL | `sales_by_product` table | Product aggregates for Power BI |
 
 ### Trigger the DAG
 
@@ -339,6 +356,57 @@ FROM OPENROWSET(
 ### Common Issues
 
 See `docs/synapse-setup.md` for troubleshooting:
+
+## Azure SQL: Power BI Serving Layer
+
+Azure SQL Database stores Gold layer aggregations for fast Power BI reporting.
+
+### Setup
+
+```bash
+cd infra
+./05-create-azure-sql.sh
+```
+
+### Tables Created by DAG
+
+The `datalake_sample` DAG creates and populates these tables:
+
+| Table | Description |
+|-------|-------------|
+| `sales_by_region` | Daily sales aggregates by region |
+| `sales_by_product` | Daily sales aggregates by product |
+
+### Power BI Connection
+
+| Setting | Value |
+|---------|-------|
+| Server | `trinitydb.database.windows.net` |
+| Database | `trinity` |
+| Authentication | SQL Server |
+| Username | `sqladmin` |
+| Password | (from script output) |
+
+### Sample Query
+
+```sql
+SELECT region, SUM(total_revenue) as revenue
+FROM sales_by_region
+WHERE report_date >= DATEADD(day, -7, GETDATE())
+GROUP BY region
+ORDER BY revenue DESC
+```
+
+### Cost
+
+| SKU | Monthly Cost |
+|-----|--------------|
+| Basic | ~$5 |
+| S0 (default) | ~$15 |
+| S1 | ~$30 |
+
+## Synapse Common Issues
+
 - Must use `trinity` database (not `master`)
 - Use `FIRSTROW = 2` instead of `HEADER_ROW = TRUE`
 - Use single `*` wildcards (not `**`)
@@ -404,8 +472,10 @@ az storage fs file list --file-system bronze --account-name gaaborotrinity --acc
 | VM (Standard_D4s_v3) | ~$140 |
 | Storage (128 GB SSD) | ~$20 |
 | Data Lake (pay per use) | ~$5-20 |
+| Azure SQL (S0) | ~$15 |
+| Synapse (pay per TB) | ~$5-50 |
 | Static IP | ~$3 |
-| **Total** | **~$170** |
+| **Total** | **~$190-250** |
 
 ## Cleanup
 
@@ -436,6 +506,8 @@ az network nsg rule update -g airflow-rg --nsg-name airflow-nsg \
 az provider register --namespace Microsoft.Storage --wait
 az provider register --namespace Microsoft.Network --wait
 az provider register --namespace Microsoft.Compute --wait
+az provider register --namespace Microsoft.Synapse --wait
+az provider register --namespace Microsoft.Sql --wait
 ```
 
 ### Storage account name taken
@@ -482,6 +554,83 @@ ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP> \
 
 # Check scheduler logs
 cd /opt/airflow && docker-compose logs airflow-scheduler | grep -i error
+```
+
+### Environment variables not picked up by Airflow
+
+After adding variables to `.env`, you must do a full restart (not just `docker-compose restart`):
+
+```bash
+cd /opt/airflow
+docker-compose down
+docker-compose up -d
+```
+
+**Why:** `docker-compose restart` doesn't re-read environment variables from the compose file. Only `down` + `up` does.
+
+### pymssql build fails in Dockerfile
+
+**Error:** `Could not find C compiler` or `setuptools_scm version conflict`
+
+**Solution:** Use pymssql 2.2.x and install build dependencies:
+
+```dockerfile
+FROM apache/airflow:2.8.1
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    freetds-dev \
+    build-essential \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+USER airflow
+RUN pip install --no-cache-dir "pymssql>=2.2.0,<2.3.0"
+```
+
+### Azure SQL credentials not working in DAG
+
+**Symptom:** Task logs show "Azure SQL credentials not configured. Skipping SQL load."
+
+**Cause:** Environment variables in `.env` must be mapped in `docker-compose.yaml`.
+
+**Solution:** Ensure these lines exist in `docker-compose.yaml` under `environment`:
+
+```yaml
+AZURE_SQL_SERVER: ${AZURE_SQL_SERVER:-}
+AZURE_SQL_DATABASE: ${AZURE_SQL_DATABASE:-trinity}
+AZURE_SQL_USER: ${AZURE_SQL_USER:-sqladmin}
+AZURE_SQL_PASSWORD: ${AZURE_SQL_PASSWORD:-}
+```
+
+Then restart: `docker-compose down && docker-compose up -d`
+
+### Synapse query fails with "File cannot be opened"
+
+See `docs/synapse-setup.md` for detailed troubleshooting. Common fixes:
+
+1. **Use user database, not `master`** - Create and use `trinity` database
+2. **Create database scoped credential** - SAS token or storage key
+3. **Set ACLs on files** - `other::r-x` for read access
+4. **Use correct OPENROWSET syntax** - `FIRSTROW = 2` not `HEADER_ROW = TRUE`
+
+### CI/CD workflow fails with "rsync not found"
+
+**Solution:** Add rsync installation step to workflow:
+
+```yaml
+- name: Install rsync
+  run: sudo apt-get update && sudo apt-get install -y rsync
+```
+
+### act (local GitHub Actions) fails
+
+**Error:** Architecture mismatch on Apple Silicon
+
+**Solution:** Use `--container-architecture linux/amd64`:
+
+```bash
+act -j validate --container-architecture linux/amd64
 ```
 
 ## License

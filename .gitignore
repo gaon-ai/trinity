@@ -2,3 +2,7 @@
 # Local development
 airflow/.env
 airflow/.env.local
+
+# Local documentation with secrets
+docs/
+.idea/

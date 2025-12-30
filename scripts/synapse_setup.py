@@ -75,13 +75,14 @@ def setup_synapse():
     sas_token = get_sas_token(CONFIG["storage_account"], CONFIG["storage_key"])
     print("SAS token generated!")
 
-    # Connect to master to create database
+    # Connect to master to create database (autocommit required for CREATE DATABASE)
     print("\nConnecting to Synapse...")
     conn = pymssql.connect(
         server=CONFIG["server"],
         user=CONFIG["user"],
         password=CONFIG["password"],
-        database="master"
+        database="master",
+        autocommit=True
     )
     cursor = conn.cursor()
 
@@ -89,7 +90,6 @@ def setup_synapse():
     print(f"Creating database '{CONFIG['database']}'...")
     try:
         cursor.execute(f"CREATE DATABASE {CONFIG['database']}")
-        conn.commit()
         print("Database created!")
     except pymssql.Error as e:
         if "already exists" in str(e).lower():
@@ -98,12 +98,13 @@ def setup_synapse():
             raise
     conn.close()
 
-    # Connect to user database
+    # Connect to user database (autocommit required for DDL statements)
     conn = pymssql.connect(
         server=CONFIG["server"],
         user=CONFIG["user"],
         password=CONFIG["password"],
-        database=CONFIG["database"]
+        database=CONFIG["database"],
+        autocommit=True
     )
     cursor = conn.cursor()
 
@@ -111,7 +112,6 @@ def setup_synapse():
     print("\nCreating master key...")
     try:
         cursor.execute(f"CREATE MASTER KEY ENCRYPTION BY PASSWORD = '{CONFIG['master_key_password']}'")
-        conn.commit()
         print("Master key created!")
     except pymssql.Error as e:
         if "already" in str(e).lower():
@@ -127,19 +127,16 @@ def setup_synapse():
             WITH IDENTITY = 'SHARED ACCESS SIGNATURE',
             SECRET = '{sas_token}'
         """)
-        conn.commit()
         print("Credential created!")
     except pymssql.Error as e:
         if "already exists" in str(e).lower():
             print("Credential already exists. Dropping and recreating...")
             cursor.execute("DROP DATABASE SCOPED CREDENTIAL TrinityStorageKey")
-            conn.commit()
             cursor.execute(f"""
                 CREATE DATABASE SCOPED CREDENTIAL TrinityStorageKey
                 WITH IDENTITY = 'SHARED ACCESS SIGNATURE',
                 SECRET = '{sas_token}'
             """)
-            conn.commit()
             print("Credential recreated!")
         else:
             raise
@@ -154,7 +151,6 @@ def setup_synapse():
                 CREDENTIAL = TrinityStorageKey
             )
         """)
-        conn.commit()
         print("External data source created!")
     except pymssql.Error as e:
         if "already exists" in str(e).lower():
