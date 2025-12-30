@@ -19,7 +19,7 @@ from azure.storage.filedatalake import DataLakeServiceClient
 
 
 # Data Lake configuration from environment
-STORAGE_ACCOUNT_NAME = os.environ.get('AZURE_STORAGE_ACCOUNT_NAME', 'gaaborotrinity')
+STORAGE_ACCOUNT_NAME = os.environ.get('AZURE_STORAGE_ACCOUNT_NAME', '')
 STORAGE_ACCOUNT_KEY = os.environ.get('AZURE_STORAGE_ACCOUNT_KEY', '')
 
 # Azure SQL configuration from environment

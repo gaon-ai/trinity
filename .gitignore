@@ -1,8 +1,12 @@
-
 # Local development
 airflow/.env
 airflow/.env.local
+.venv/
 
 # Local documentation with secrets
 docs/
+
+# IDE
 .idea/
+*.pyc
+__pycache__/

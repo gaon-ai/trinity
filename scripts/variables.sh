@@ -3,9 +3,8 @@
 # Update these values before running the scripts
 
 # =============================================================================
-# REQUIRED: Provided by Infrastructure Team
+# REQUIRED: Set these before running infrastructure scripts
 # =============================================================================
-# These must be set before running deploy.sh
 export SUBSCRIPTION_ID="${SUBSCRIPTION_ID:-}"      # Azure subscription ID
 export RESOURCE_GROUP="${RESOURCE_GROUP:-}"        # Resource group name
 export VM_NAME="${VM_NAME:-}"                      # VM name (created by infra team)
