@@ -58,21 +58,22 @@ export VM_NAME="airflow-vm"
 export VNET_NAME="trinity-vnet"
 export SUBNET_NAME="trinity-subnet"
 
-# 2. Create resources (run from repo root)
-./scripts/01-create-vm.sh           # Creates VM, VNet, NSG
-./scripts/03-create-datalake.sh     # Creates ADLS Gen2
-./scripts/04-create-synapse.sh      # Creates Synapse Serverless
+# 2. Create resources (run from infra/)
+cd infra
+./01-create-vm.sh           # Creates VM, VNet, NSG
+./03-create-datalake.sh     # Creates ADLS Gen2
+./04-create-synapse.sh      # Creates Synapse Serverless
 
 # 3. Setup Airflow on VM
-scp -i ~/.ssh/airflow_vm_key -r airflow scripts/02-setup-vm.sh azureuser@<VM_IP>:~/
+scp -i ~/.ssh/airflow_vm_key -r ../airflow 02-setup-vm.sh azureuser@<VM_IP>:~/
 ssh -i ~/.ssh/airflow_vm_key azureuser@<VM_IP>
 chmod +x 02-setup-vm.sh && ./02-setup-vm.sh
 
-# 4. Configure Synapse
+# 4. Configure Synapse views
 python3 scripts/synapse_setup.py
 ```
 
-See `scripts/README.md` for detailed script documentation.
+See `docs/` for detailed setup documentation.
 
 ## Project Structure
 
@@ -84,18 +85,27 @@ trinity/
 │   ├── Dockerfile              # Custom Airflow image
 │   ├── docker-compose.yaml     # Airflow services
 │   ├── .env.example            # Environment template
-│   └── dags/
-│       ├── hello_world_dag.py      # Test DAG
-│       └── datalake_sample_dag.py  # Bronze → Silver → Gold pipeline
-├── scripts/
-│   ├── README.md               # Script documentation
+│   ├── dags/
+│   │   ├── bronze/
+│   │   │   └── sales_ingestion.py    # Bronze: ingest raw data
+│   │   ├── silver/
+│   │   │   └── sales_transform.py    # Silver: clean & transform
+│   │   └── gold/
+│   │       └── sales_aggregation.py  # Gold: business aggregates
+│   └── plugins/
+│       └── lib/
+│           ├── datasets.py     # Airflow Dataset definitions
+│           ├── datalake.py     # Azure Data Lake operations
+│           └── utils.py        # Path building utilities
+├── infra/
 │   ├── variables.sh            # Configuration
 │   ├── 01-create-vm.sh         # Create VM infrastructure
 │   ├── 02-setup-vm.sh          # Setup Docker/Airflow on VM
 │   ├── 03-create-datalake.sh   # Create Data Lake
 │   ├── 04-create-synapse.sh    # Create Synapse
-│   ├── 05-create-azure-sql.sh  # Create Azure SQL (optional)
-│   ├── synapse_setup.py        # Configure Synapse credentials
+│   └── 05-create-azure-sql.sh  # Create Azure SQL (optional)
+├── scripts/
+│   ├── synapse_setup.py        # Configure Synapse credentials & views
 │   ├── local-dev.sh            # Local Airflow development
 │   └── validate_dags.py        # DAG syntax validation
 └── docs/                       # Local docs with credentials (gitignored)
@@ -134,39 +144,56 @@ DAGs automatically deploy to the VM when pushing to `main`:
 
 ## Data Pipeline
 
-The `datalake_sample` DAG demonstrates the medallion architecture:
+Multi-DAG medallion architecture with Dataset-based triggers:
 
 ```
-Bronze (raw JSON) → Silver (cleaned CSV) → Gold (aggregates) → SQL (optional)
+┌───────────────────┐    Dataset     ┌──────────────────┐    Dataset     ┌─────────────────────┐
+│  bronze_sales_    │───BRONZE_SALES──▶│  silver_sales_   │───SILVER_SALES──▶│  gold_sales_        │
+│  ingestion        │                │  transform       │                │  aggregation        │
+│                   │                │                  │                │                     │
+│  • Sensor         │                │  • Wait for file │                │  • By region        │
+│  • Ingest raw     │                │  • Transform     │                │  • By product       │
+│  • Publish dataset│                │  • Publish dataset│               │  • Daily summary    │
+└───────────────────┘                └──────────────────┘                └─────────────────────┘
+     @hourly                           On BRONZE_SALES                      On SILVER_SALES
 ```
+
+**Key Concepts:**
+- **Sensor**: Bronze DAG waits for source system availability
+- **Dataset**: DAGs publish events when data is written (`outlets=[DATASET]`)
+- **Trigger**: Downstream DAGs automatically run when upstream Dataset updates
 
 | Layer | Path | Format |
 |-------|------|--------|
-| Bronze | `bronze/erp/sales/date=YYYY-MM-DD/` | JSON |
-| Silver | `silver/erp/sales/date=YYYY-MM-DD/` | CSV |
-| Gold | `gold/analytics/sales_by_region/` | CSV |
-| Gold | `gold/serving/daily_summary/` | JSON |
+| Bronze | `bronze/erp/sales/{YYYY-MM-DD-HH}/raw.json` | JSON |
+| Silver | `silver/sales/{YYYY-MM-DD-HH}/cleaned.csv` | CSV |
+| Gold | `gold/sales_by_region/{YYYY-MM-DD-HH}/data.csv` | CSV |
+| Gold | `gold/sales_by_product/{YYYY-MM-DD-HH}/data.csv` | CSV |
+| Gold | `gold/daily_summary/{YYYY-MM-DD-HH}/summary.json` | JSON |
 
 ## Synapse Queries
 
-Query Data Lake files directly with SQL:
+Pre-built views auto-include new data (wildcard `*` matches all partitions):
 
 ```sql
--- Must use 'trinity' database, not 'master'
-SELECT *
-FROM OPENROWSET(
-    BULK 'silver/erp/sales/*/sales_cleaned.csv',
+-- Use the 'trinity' database
+USE trinity;
+
+-- Query Gold aggregates directly via views
+SELECT * FROM sales_by_region;    -- Revenue by region
+SELECT * FROM sales_by_product;   -- Revenue by product
+SELECT * FROM silver_sales;       -- Cleaned sales data
+```
+
+Views are created by `scripts/synapse_setup.py`. They use OPENROWSET with wildcards:
+
+```sql
+-- Example: How views work internally
+SELECT * FROM OPENROWSET(
+    BULK 'gold/sales_by_region/*/data.csv',  -- Wildcard picks up all partitions
     DATA_SOURCE = 'TrinityLake',
-    FORMAT = 'CSV',
-    PARSER_VERSION = '2.0',
-    FIRSTROW = 2
-) WITH (
-    order_id VARCHAR(50),
-    product VARCHAR(100),
-    quantity INT,
-    region VARCHAR(50),
-    total_amount DECIMAL(10,2)
-) AS sales
+    FORMAT = 'CSV', PARSER_VERSION = '2.0', FIRSTROW = 2
+) WITH (...) AS data
 ```
 
 ## Costs (Estimated Monthly)
@@ -188,7 +215,11 @@ az group delete --name trinity-rg --yes --no-wait
 
 ## Documentation
 
-Detailed documentation with credentials is in `docs/TRINITY-GUIDE.md` (local only, gitignored).
+- `docs/infrastructure-request.md` - Azure resource specifications
+- `docs/replication-guide.md` - Steps to replicate deployment
+- `docs/cost-estimate.md` - Monthly cost breakdown
+
+Note: Credentials should be stored in `airflow/.env` (gitignored).
 
 ## License
 
