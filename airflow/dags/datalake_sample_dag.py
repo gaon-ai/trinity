@@ -44,9 +44,17 @@ def write_to_datalake(container: str, path: str, data: str):
     print(f"Wrote data to {container}/{path}")
 
 
+def get_date_hour(context) -> str:
+    """Get execution date in YYYY-MM-DD-HH format."""
+    # Use logical_date (Airflow 2.2+) or execution_date
+    dt = context.get('logical_date') or context.get('execution_date')
+    return dt.strftime('%Y-%m-%d-%H')
+
+
 def generate_sample_data(**context):
     """Generate sample sales data and write to Bronze layer."""
-    execution_date = context['ds']
+    date_hour = get_date_hour(context)
+    execution_date = context['ds']  # For data content
 
     # Sample sales data
     data = {
@@ -62,8 +70,9 @@ def generate_sample_data(**context):
     df = pd.DataFrame(data)
 
     # Write raw JSON to Bronze layer
+    # Path: bronze/{source}/{dataset}/{YYYY-MM-DD-HH}/raw.json
     json_data = df.to_json(orient='records', indent=2)
-    bronze_path = f"erp/sales/date={execution_date}/sales_raw.json"
+    bronze_path = f"erp/sales/{date_hour}/raw.json"
     write_to_datalake('bronze', bronze_path, json_data)
 
     # Return path for next task
@@ -72,7 +81,8 @@ def generate_sample_data(**context):
 
 def transform_to_silver(**context):
     """Read from Bronze, clean/transform, write to Silver layer."""
-    execution_date = context['ds']
+    date_hour = get_date_hour(context)
+    execution_date = context['ds']  # For data content
 
     # In a real scenario, you'd read from Bronze
     # For this example, we'll recreate and transform the data
@@ -93,8 +103,9 @@ def transform_to_silver(**context):
     df['processed_at'] = datetime.now().isoformat()
 
     # Write cleaned CSV to Silver layer
+    # Path: silver/{dataset}/{YYYY-MM-DD-HH}/cleaned.csv
     csv_data = df.to_csv(index=False)
-    silver_path = f"erp/sales/date={execution_date}/sales_cleaned.csv"
+    silver_path = f"sales/{date_hour}/cleaned.csv"
     write_to_datalake('silver', silver_path, csv_data)
 
     return silver_path
@@ -102,7 +113,8 @@ def transform_to_silver(**context):
 
 def aggregate_to_gold(**context):
     """Aggregate data and write to Gold layer for BI consumption."""
-    execution_date = context['ds']
+    date_hour = get_date_hour(context)
+    execution_date = context['ds']  # For data content
 
     # Sample transformed data
     data = {
@@ -136,11 +148,12 @@ def aggregate_to_gold(**context):
     product_summary['report_date'] = execution_date
 
     # Write aggregated data to Gold layer
+    # Path: gold/{dataset}/{YYYY-MM-DD-HH}/data.csv
     region_csv = region_summary.to_csv(index=False)
-    write_to_datalake('gold', f"analytics/sales_by_region/date={execution_date}/data.csv", region_csv)
+    write_to_datalake('gold', f"sales_by_region/{date_hour}/data.csv", region_csv)
 
     product_csv = product_summary.to_csv(index=False)
-    write_to_datalake('gold', f"analytics/sales_by_product/date={execution_date}/data.csv", product_csv)
+    write_to_datalake('gold', f"sales_by_product/{date_hour}/data.csv", product_csv)
 
     # Write a summary for serving layer (could be loaded to Azure SQL)
     summary = {
@@ -153,7 +166,7 @@ def aggregate_to_gold(**context):
     }
 
     summary_json = json.dumps(summary, indent=2)
-    write_to_datalake('gold', f"serving/daily_summary/date={execution_date}/summary.json", summary_json)
+    write_to_datalake('gold', f"daily_summary/{date_hour}/summary.json", summary_json)
 
     print(f"Gold layer aggregations complete for {execution_date}")
     print(f"Total Revenue: ${summary['total_revenue']:.2f}")
