@@ -7,7 +7,7 @@ import os
 import json
 import time
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, List, Tuple, Dict
 
 from azure.storage.filedatalake import DataLakeServiceClient
 
@@ -139,11 +139,11 @@ def wait_for_file(
 
 
 def wait_for_files(
-    files: list[tuple[str, str]],
+    files: List[Tuple[str, str]],
     timeout_seconds: int = 300,
     poll_interval: int = 10,
     require_all: bool = True
-) -> dict[str, bool]:
+) -> Dict[str, bool]:
     """
     Wait for multiple files to exist.
 

@@ -5,6 +5,8 @@ x-airflow-common: &airflow-common
   image: trinity-airflow:latest
   environment:
     &airflow-common-env
+    # Add plugins to Python path for custom modules
+    PYTHONPATH: /opt/airflow/plugins:/opt/airflow/dags
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASSWORD}@postgres/airflow
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
