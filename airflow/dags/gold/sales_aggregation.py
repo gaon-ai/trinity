@@ -19,38 +19,39 @@ import pandas as pd
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-from lib.datalake import read_from_datalake, write_to_datalake, write_metadata
+from lib.datalake import read_from_datalake, write_to_datalake, write_metadata, wait_for_file
 from lib.utils import get_date_hour, get_execution_date, build_silver_path, build_gold_path
 from lib.datasets import SILVER_SALES, GOLD_SALES_BY_REGION, GOLD_SALES_BY_PRODUCT
 
+# Configuration
+WAIT_TIMEOUT_SECONDS = 300  # 5 minutes
+WAIT_POLL_INTERVAL = 10     # Check every 10 seconds
 
-def load_silver_sales(partition: str, execution_date: str) -> pd.DataFrame:
-    """Load sales data from Silver layer."""
+
+def load_silver_sales(partition: str) -> pd.DataFrame:
+    """Load sales data from Silver layer with wait."""
     silver_path = build_silver_path('sales', partition, 'cleaned.csv')
-    try:
-        csv_data = read_from_datalake('silver', silver_path)
-        df = pd.read_csv(StringIO(csv_data))
-        print(f"Read {len(df)} records from Silver")
-        return df
-    except Exception as e:
-        print(f"Warning: Could not read Silver ({e}). Using sample.")
-        return pd.DataFrame({
-            'order_id': [1001, 1002, 1003, 1004, 1005],
-            'customer_id': ['C001', 'C002', 'C001', 'C003', 'C002'],
-            'product': ['Widget A', 'Widget B', 'Widget A', 'Widget C', 'Widget B'],
-            'quantity': [2, 1, 3, 1, 2],
-            'unit_price': [29.99, 49.99, 29.99, 79.99, 49.99],
-            'order_date': [execution_date] * 5,
-            'region': ['East', 'West', 'East', 'North', 'West'],
-            'total_amount': [59.98, 49.99, 89.97, 79.99, 99.98],
-        })
+
+    # Wait for Silver data to be ready
+    wait_for_file(
+        'silver', silver_path,
+        timeout_seconds=WAIT_TIMEOUT_SECONDS,
+        poll_interval=WAIT_POLL_INTERVAL,
+        raise_on_timeout=True
+    )
+
+    # Read from Silver
+    csv_data = read_from_datalake('silver', silver_path)
+    df = pd.read_csv(StringIO(csv_data))
+    print(f"Read {len(df)} records from Silver")
+    return df
 
 
 def aggregate_by_region(**context):
     """Create sales by region aggregation."""
     partition = get_date_hour(context)
     execution_date = get_execution_date(context)
-    df = load_silver_sales(partition, execution_date)
+    df = load_silver_sales(partition)
 
     # Aggregate
     summary = df.groupby('region').agg({
@@ -78,7 +79,7 @@ def aggregate_by_product(**context):
     """Create sales by product aggregation."""
     partition = get_date_hour(context)
     execution_date = get_execution_date(context)
-    df = load_silver_sales(partition, execution_date)
+    df = load_silver_sales(partition)
 
     # Aggregate
     summary = df.groupby('product').agg({
@@ -106,7 +107,7 @@ def create_daily_summary(**context):
     """Create daily summary JSON."""
     partition = get_date_hour(context)
     execution_date = get_execution_date(context)
-    df = load_silver_sales(partition, execution_date)
+    df = load_silver_sales(partition)
 
     summary = {
         'report_date': execution_date,

@@ -5,8 +5,9 @@ Common functions for reading/writing to Azure Data Lake Gen2.
 """
 import os
 import json
+import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from azure.storage.filedatalake import DataLakeServiceClient
 
@@ -80,6 +81,119 @@ def file_exists(container: str, path: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def wait_for_file(
+    container: str,
+    path: str,
+    timeout_seconds: int = 300,
+    poll_interval: int = 10,
+    raise_on_timeout: bool = True
+) -> bool:
+    """
+    Wait for a file to exist in Data Lake with retry logic.
+
+    Use this to wait for upstream data before processing.
+
+    Args:
+        container: Container name (bronze, silver, gold)
+        path: File path within container
+        timeout_seconds: Maximum time to wait (default: 5 minutes)
+        poll_interval: Seconds between checks (default: 10)
+        raise_on_timeout: If True, raise exception on timeout; else return False
+
+    Returns:
+        True if file exists within timeout
+
+    Raises:
+        TimeoutError: If file not found within timeout (when raise_on_timeout=True)
+
+    Example:
+        >>> wait_for_file('bronze', 'erp/sales/2025-12-30-14/raw.json')
+        True
+    """
+    full_path = f"{container}/{path}"
+    print(f"Waiting for {full_path} (timeout: {timeout_seconds}s)...")
+
+    start_time = time.time()
+    attempts = 0
+
+    while time.time() - start_time < timeout_seconds:
+        attempts += 1
+        if file_exists(container, path):
+            elapsed = time.time() - start_time
+            print(f"Found {full_path} after {elapsed:.1f}s ({attempts} attempts)")
+            return True
+
+        print(f"  Attempt {attempts}: Not found, retrying in {poll_interval}s...")
+        time.sleep(poll_interval)
+
+    elapsed = time.time() - start_time
+    msg = f"Timeout waiting for {full_path} after {elapsed:.1f}s ({attempts} attempts)"
+
+    if raise_on_timeout:
+        raise TimeoutError(msg)
+
+    print(f"Warning: {msg}")
+    return False
+
+
+def wait_for_files(
+    files: list[tuple[str, str]],
+    timeout_seconds: int = 300,
+    poll_interval: int = 10,
+    require_all: bool = True
+) -> dict[str, bool]:
+    """
+    Wait for multiple files to exist.
+
+    Args:
+        files: List of (container, path) tuples
+        timeout_seconds: Maximum time to wait for all files
+        poll_interval: Seconds between checks
+        require_all: If True, raise if any file missing; else return status dict
+
+    Returns:
+        Dict mapping full paths to existence status
+
+    Example:
+        >>> wait_for_files([
+        ...     ('bronze', 'erp/sales/2025-12-30-14/raw.json'),
+        ...     ('bronze', 'erp/orders/2025-12-30-14/raw.json'),
+        ... ])
+        {'bronze/erp/sales/...': True, 'bronze/erp/orders/...': True}
+    """
+    print(f"Waiting for {len(files)} files (timeout: {timeout_seconds}s)...")
+
+    start_time = time.time()
+    results = {f"{c}/{p}": False for c, p in files}
+
+    while time.time() - start_time < timeout_seconds:
+        all_found = True
+        for container, path in files:
+            full_path = f"{container}/{path}"
+            if not results[full_path]:
+                if file_exists(container, path):
+                    results[full_path] = True
+                    print(f"  Found: {full_path}")
+                else:
+                    all_found = False
+
+        if all_found:
+            elapsed = time.time() - start_time
+            print(f"All files found after {elapsed:.1f}s")
+            return results
+
+        time.sleep(poll_interval)
+
+    missing = [p for p, found in results.items() if not found]
+    msg = f"Timeout: {len(missing)} file(s) not found: {missing}"
+
+    if require_all:
+        raise TimeoutError(msg)
+
+    print(f"Warning: {msg}")
+    return results
 
 
 def write_metadata(
