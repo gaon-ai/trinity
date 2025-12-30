@@ -65,7 +65,7 @@ jobs:
           # Move to correct location and fix permissions
           ssh -i ~/.ssh/airflow_key -o StrictHostKeyChecking=no \
             ${{ secrets.AIRFLOW_SSH_USER }}@${{ secrets.AIRFLOW_VM_IP }} \
-            'sudo rsync -av /tmp/dags/ /opt/airflow/dags/ && sudo chown -R 50000:0 /opt/airflow/dags/'
+            'sudo rsync -av --delete /tmp/dags/ /opt/airflow/dags/ && sudo chown -R 50000:0 /opt/airflow/dags/'
 
           echo "DAGs deployed successfully!"
 
