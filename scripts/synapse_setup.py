@@ -15,13 +15,13 @@ import os
 import sys
 import subprocess
 
-# Configuration - override with environment variables
+# Configuration - set via environment variables
 CONFIG = {
-    "server": os.environ.get("SYNAPSE_SERVER", "trinitysynapse-ondemand.sql.azuresynapse.net"),
+    "server": os.environ.get("SYNAPSE_SERVER", ""),
     "user": os.environ.get("SYNAPSE_USER", "sqladmin"),
     "password": os.environ.get("SYNAPSE_PASSWORD", ""),
     "database": os.environ.get("SYNAPSE_DATABASE", "trinity"),
-    "storage_account": os.environ.get("STORAGE_ACCOUNT_NAME", "gaaborotrinity"),
+    "storage_account": os.environ.get("STORAGE_ACCOUNT_NAME", ""),
     "storage_key": os.environ.get("STORAGE_ACCOUNT_KEY", ""),
     "master_key_password": os.environ.get("MASTER_KEY_PASSWORD", "Trinity2025Secure!"),
 }
