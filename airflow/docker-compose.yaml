@@ -25,6 +25,10 @@ x-airflow-common: &airflow-common
     AZURE_SQL_DATABASE: ${AZURE_SQL_DATABASE:-trinity}
     AZURE_SQL_USER: ${AZURE_SQL_USER:-sqladmin}
     AZURE_SQL_PASSWORD: ${AZURE_SQL_PASSWORD:-}
+    # Client SQL Server (On-Prem via VPN)
+    # Using AIRFLOW_CONN_ prefix for automatic connection creation
+    # Format: mssql://user:password@host:port/database
+    AIRFLOW_CONN_CLIENT_SQLSERVER: ${AIRFLOW_CONN_CLIENT_SQLSERVER:-}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
