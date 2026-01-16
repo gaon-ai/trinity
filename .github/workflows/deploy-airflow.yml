@@ -52,9 +52,9 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y rsync
 
-      - name: Deploy DAGs
+      - name: Deploy DAGs and Plugins
         run: |
-          echo "Deploying DAGs to Airflow VM..."
+          echo "Deploying DAGs and plugins to Airflow VM..."
 
           # Sync DAGs folder
           rsync -avz --delete \
@@ -62,12 +62,20 @@ jobs:
             airflow/dags/ \
             ${{ secrets.AIRFLOW_SSH_USER }}@${{ secrets.AIRFLOW_VM_IP }}:/tmp/dags/
 
+          # Sync plugins folder
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/airflow_key -o StrictHostKeyChecking=no" \
+            airflow/plugins/ \
+            ${{ secrets.AIRFLOW_SSH_USER }}@${{ secrets.AIRFLOW_VM_IP }}:/tmp/plugins/
+
           # Move to correct location and fix permissions
           ssh -i ~/.ssh/airflow_key -o StrictHostKeyChecking=no \
             ${{ secrets.AIRFLOW_SSH_USER }}@${{ secrets.AIRFLOW_VM_IP }} \
-            'sudo rsync -av --delete /tmp/dags/ /opt/airflow/dags/ && sudo chown -R 50000:0 /opt/airflow/dags/'
+            'sudo rsync -av --delete /tmp/dags/ /opt/airflow/dags/ && \
+             sudo rsync -av --delete /tmp/plugins/ /opt/airflow/plugins/ && \
+             sudo chown -R 50000:0 /opt/airflow/dags/ /opt/airflow/plugins/'
 
-          echo "DAGs deployed successfully!"
+          echo "DAGs and plugins deployed successfully!"
 
       - name: Check if rebuild needed
         id: check_rebuild
