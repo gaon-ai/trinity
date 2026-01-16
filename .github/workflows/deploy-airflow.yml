@@ -75,6 +75,11 @@ jobs:
              sudo rsync -av --delete /tmp/plugins/ /opt/airflow/plugins/ && \
              sudo chown -R 50000:0 /opt/airflow/dags/ /opt/airflow/plugins/'
 
+          # Trigger DAG parsing
+          ssh -i ~/.ssh/airflow_key -o StrictHostKeyChecking=no \
+            ${{ secrets.AIRFLOW_SSH_USER }}@${{ secrets.AIRFLOW_VM_IP }} \
+            'cd /opt/airflow && sudo docker compose exec -T airflow-scheduler airflow dags reserialize || true'
+
           echo "DAGs and plugins deployed successfully!"
 
       - name: Check if rebuild needed
