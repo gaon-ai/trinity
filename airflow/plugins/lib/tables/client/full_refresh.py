@@ -14,7 +14,7 @@ from lib.tables.base import TableConfig, IngestionPattern
 FULL_REFRESH_TABLES = [
     TableConfig(
         source_table="custaddr_mst",
-        target_table="custaddr_mst",
+        target_table="customer_address",
         pattern=IngestionPattern.FULL_REFRESH,
         primary_key="cust_seq",
         schema="dbo",
@@ -22,7 +22,7 @@ FULL_REFRESH_TABLES = [
     ),
     TableConfig(
         source_table="ledger_mst",
-        target_table="ledger_mst",
+        target_table="general_ledger",
         pattern=IngestionPattern.FULL_REFRESH,
         primary_key="acct",
         schema="dbo",

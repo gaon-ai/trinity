@@ -15,7 +15,7 @@ from lib.tables.base import TableConfig, IngestionPattern
 INCREMENTAL_TABLES = [
     TableConfig(
         source_table="inv_item_mst",
-        target_table="inv_item_mst",
+        target_table="invoice_item",
         pattern=IngestionPattern.TIMESTAMP_INCREMENTAL,
         pattern_params={"timestamp_column": "RecordDate"},
         primary_key="item_id",
@@ -24,7 +24,7 @@ INCREMENTAL_TABLES = [
     ),
     TableConfig(
         source_table="coitem_mst",
-        target_table="coitem_mst",
+        target_table="order_item",
         pattern=IngestionPattern.TIMESTAMP_INCREMENTAL,
         pattern_params={"timestamp_column": "RecordDate"},
         primary_key="co_num",
@@ -33,7 +33,7 @@ INCREMENTAL_TABLES = [
     ),
     TableConfig(
         source_table="inv_hdr_mst",
-        target_table="inv_hdr_mst",
+        target_table="invoice_header",
         pattern=IngestionPattern.TIMESTAMP_INCREMENTAL,
         pattern_params={"timestamp_column": "RecordDate"},
         primary_key="inv_num",
