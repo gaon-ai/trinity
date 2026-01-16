@@ -23,11 +23,9 @@ jobs:
       - name: Validate DAG syntax
         run: |
           echo "Validating DAG files..."
-          for file in airflow/dags/*.py; do
-            if [ -f "$file" ]; then
-              echo "Checking $file"
-              python -m py_compile "$file"
-            fi
+          find airflow/dags -name "*.py" -type f | while read file; do
+            echo "Checking $file"
+            python -m py_compile "$file"
           done
           echo "All DAGs validated successfully!"
 

@@ -6,7 +6,7 @@ how tables should be synced from source to target.
 
 Usage:
     from lib.tables import TableConfig, IngestionPattern
-    from lib.tables.client import INVENTORY_TABLES, INV_ITEM_MST
+    from lib.tables.client import ALL_TABLES, INCREMENTAL_TABLES
 """
 from lib.tables.base import (
     TableConfig,

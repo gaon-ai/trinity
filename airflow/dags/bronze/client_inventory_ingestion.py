@@ -4,14 +4,19 @@ Bronze Layer: Client Inventory Data Ingestion
 Ingests inventory data from client's on-prem SQL Server database
 via site-to-site VPN connection.
 
-Features:
-- SQL Templates: Jinja2 with security filters
-- Table Configuration: Centralized table definitions
-- Incremental Sync: Track last sync timestamp for efficient updates
-- Sync Metadata: Track sync state in Data Lake
-
-Schedule: @daily
+Schedule: Daily
 Path: bronze/client/{table}/{YYYY-MM-DD-HH}/data.json
+
+Manual Trigger Options (pass as conf JSON):
+    - full_refresh: true     -> Force full refresh (ignore last sync timestamp)
+    - tables: ["table1"]     -> Only sync specific tables (by target_table name)
+
+Examples:
+    # Full refresh all tables
+    airflow dags trigger bronze_client_inventory_ingestion --conf '{"full_refresh": true}'
+
+    # Refresh specific tables only
+    airflow dags trigger bronze_client_inventory_ingestion --conf '{"tables": ["inv_item_mst"]}'
 """
 import json
 import time
@@ -19,6 +24,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict
 
 from airflow import DAG
+from airflow.models import Param
 from airflow.operators.python import PythonOperator
 
 from lib.client_db import fetch_query
@@ -49,11 +55,29 @@ def ingest_table(table_config, **context) -> Dict[str, Any]:
     table_name = table_config.target_table
     start_time = time.time()
 
+    # Get manual trigger parameters
+    dag_conf = context.get("dag_run").conf or {}
+    force_full_refresh = dag_conf.get("full_refresh", False)
+    selected_tables = dag_conf.get("tables", None)
+
+    # Skip if specific tables requested and this isn't one of them
+    if selected_tables and table_name not in selected_tables:
+        print(f"Skipping {table_name} (not in selected tables: {selected_tables})")
+        return {'table': table_name, 'skipped': True, 'reason': 'not_selected'}
+
     print(f"Starting ingestion for {table_config.full_source_name}")
     print(f"  Pattern: {table_config.pattern.value}")
+    if force_full_refresh:
+        print(f"  Mode: FULL REFRESH (forced via manual trigger)")
 
     # Build SQL query based on ingestion pattern
-    if table_config.pattern == IngestionPattern.TIMESTAMP_INCREMENTAL:
+    # If force_full_refresh, use FULL_REFRESH pattern regardless of table config
+    effective_pattern = (
+        IngestionPattern.FULL_REFRESH if force_full_refresh
+        else table_config.pattern
+    )
+
+    if effective_pattern == IngestionPattern.TIMESTAMP_INCREMENTAL:
         last_value = get_last_sync_value(table_name)
         last_value_str = format_sync_value_for_sql(last_value)
 
@@ -67,7 +91,7 @@ def ingest_table(table_config, **context) -> Dict[str, Any]:
             last_sync_value=last_value_str
         )
 
-    elif table_config.pattern == IngestionPattern.DATE_PARTITION:
+    elif effective_pattern == IngestionPattern.DATE_PARTITION:
         partition_date = context['ds']  # Use execution date as partition value
         sql = render_sql(
             'sqlserver/bronze/date_partition.sql.j2',
@@ -161,13 +185,18 @@ default_args = {
 }
 
 with DAG(
-    'bronze_client_inventory_ingestion',
+    dag_id='bronze_client_inventory_ingestion',
     default_args=default_args,
     description='Bronze: Ingest inventory data from client SQL Server',
-    schedule_interval='@daily',
+    schedule='@daily',
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=['bronze', 'client', 'inventory', 'medallion', 'incremental'],
+    doc_md=__doc__,
+    params={
+        'full_refresh': Param(False, type='boolean', description='Force full refresh (ignore last sync timestamp)'),
+        'tables': Param(None, type=['null', 'array'], description='Specific tables to sync (by target_table name)'),
+    },
 ) as dag:
 
     # Create a task for each client table
