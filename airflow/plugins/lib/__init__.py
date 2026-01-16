@@ -5,6 +5,10 @@ Usage in DAGs:
     from lib.datalake import write_to_datalake, read_from_datalake
     from lib.utils import get_date_hour, build_bronze_path
     from lib.datasets import BRONZE_SALES, SILVER_SALES
+    from lib.sql_templates import render_sql
+    from lib.sync_metadata import get_last_sync_value, update_sync_metadata
+    from lib.tables import TableConfig, IngestionPattern
+    from lib.tables.client import ALL_TABLES, INCREMENTAL_TABLES, FULL_REFRESH_TABLES
 """
 from lib.datalake import (
     get_datalake_client,
@@ -28,4 +32,11 @@ from lib.datasets import (
     GOLD_SALES_BY_REGION,
     GOLD_SALES_BY_PRODUCT,
     GOLD_DAILY_SUMMARY,
+)
+from lib.sql_templates import render_sql, get_sql_templates
+from lib.sync_metadata import (
+    get_last_sync_value,
+    get_sync_state,
+    update_sync_metadata,
+    format_sync_value_for_sql,
 )

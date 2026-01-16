@@ -1,0 +1,22 @@
+{#
+Date Partition Query Template for SQL Server
+
+Fetches records for a specific date partition.
+Use for archive tables or tables partitioned by date.
+
+Variables:
+    schema: Schema name (e.g., 'dbo')
+    table: Table name (e.g., 'report_archive')
+    partition_column: Column containing partition date (e.g., 'report_date')
+    partition_value: Date value to filter (e.g., '2025-01-01')
+
+Example:
+    render_sql('sqlserver/bronze/date_partition.sql.j2',
+               schema='dbo',
+               table='report_archive',
+               partition_column='report_date',
+               partition_value='2025-01-01')
+#}
+SELECT *
+FROM [{{ schema | validate_id }}].[{{ table | validate_id }}]
+WHERE [{{ partition_column | validate_id }}] = '{{ partition_value }}'

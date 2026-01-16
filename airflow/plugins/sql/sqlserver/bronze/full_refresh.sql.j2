@@ -1,0 +1,16 @@
+{#
+Full Refresh Query Template for SQL Server
+
+Fetches all records from a table. Use for small reference tables
+or tables without reliable update timestamps.
+
+Variables:
+    schema: Schema name (e.g., 'dbo')
+    table: Table name (e.g., 'inv_item_mst')
+
+Example:
+    render_sql('sqlserver/bronze/full_refresh.sql.j2',
+               schema='dbo', table='report_entity')
+#}
+SELECT *
+FROM [{{ schema | validate_id }}].[{{ table | validate_id }}]

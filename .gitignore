@@ -1,6 +1,7 @@
 # Local development
 airflow/.env
 airflow/.env.local
+airflow/logs/
 .venv/
 
 # Local documentation with secrets

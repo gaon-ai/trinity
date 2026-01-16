@@ -1,0 +1,23 @@
+{#
+Incremental Query Template for SQL Server
+
+Fetches records where timestamp column is greater than last sync value.
+Use for large transactional tables with reliable update timestamps.
+
+Variables:
+    schema: Schema name (e.g., 'dbo')
+    table: Table name (e.g., 'inv_item_mst')
+    timestamp_column: Column containing update timestamp (e.g., 'lastupdated')
+    last_sync_value: Last synced timestamp value (e.g., '2025-01-15 10:30:00')
+
+Example:
+    render_sql('sqlserver/bronze/incremental.sql.j2',
+               schema='dbo',
+               table='inv_item_mst',
+               timestamp_column='lastupdated',
+               last_sync_value='2025-01-15 10:30:00')
+#}
+SELECT *
+FROM [{{ schema | validate_id }}].[{{ table | validate_id }}]
+WHERE [{{ timestamp_column | validate_id }}] > '{{ last_sync_value }}'
+ORDER BY [{{ timestamp_column | validate_id }}]
