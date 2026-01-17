@@ -27,7 +27,7 @@ from airflow.operators.python import PythonOperator
 
 from lib.datalake import read_from_datalake, write_to_datalake, write_metadata, wait_for_file
 from lib.utils import get_date_hour, build_gold_path
-from lib.transformations.client_gold import (
+from lib.transformations.client import (
     transform_fact_invoice,
     transform_fact_invoice_detail,
     transform_fact_order_item,

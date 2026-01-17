@@ -1,0 +1,91 @@
+"""
+General ledger fact table transformations.
+
+Source tables:
+- general_ledger (ledger_mst) -> fact_general_ledger, margin_rebate
+"""
+import pandas as pd
+
+from .._constants import SALES_REBATE_ACCOUNT
+from .._helpers import (
+    is_rebate_eligible,
+    extract_rebate_customer_name,
+    get_rebate_customer_id,
+)
+
+
+def transform_fact_general_ledger(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transform general_ledger -> fact_general_ledger.
+
+    Source: bronze/client/general_ledger (from ledger_mst)
+    Primary Key: trans_num
+
+    Extracts rebate customer information from ref field for sales rebate account.
+
+    Columns:
+        Account: Account code
+        Transaction_Date: Transaction date
+        Domestic_Amount: Domestic currency amount
+        Foreign_Amount: Foreign currency amount
+        FromID: Source identifier
+        Reference: Reference field
+        RebateCustomerName: Extracted customer name (for rebate account only)
+        RebateCustomerID: Mapped customer ID (for rebate account only)
+    """
+    def extract_rebate_info(row):
+        """Extract rebate customer info from a single row."""
+        acct = row.get('acct')
+        trans_date = row.get('trans_date')
+        ref = row.get('ref')
+
+        if not is_rebate_eligible(acct, trans_date):
+            return '', None
+
+        customer_name = extract_rebate_customer_name(ref)
+        customer_id = get_rebate_customer_id(customer_name) if customer_name else None
+
+        return customer_name, customer_id
+
+    # Apply extraction
+    rebate_info = df.apply(extract_rebate_info, axis=1, result_type='expand')
+    rebate_info.columns = ['RebateCustomerName', 'RebateCustomerID']
+
+    return pd.DataFrame({
+        'Account': df['acct'],
+        'Transaction_Date': pd.to_datetime(df['trans_date']),
+        'Domestic_Amount': df['dom_amount'],
+        'Foreign_Amount': df['for_amount'],
+        'FromID': df['from_id'],
+        'Reference': df['ref'],
+        'RebateCustomerName': rebate_info['RebateCustomerName'],
+        'RebateCustomerID': rebate_info['RebateCustomerID'],
+    })
+
+
+def create_margin_rebate(fact_general_ledger: pd.DataFrame) -> pd.DataFrame:
+    """
+    Create margin_rebate by aggregating rebates from fact_general_ledger.
+
+    Filters to sales rebate account with valid customer names,
+    then groups by customer to sum amounts.
+
+    Args:
+        fact_general_ledger: Output of transform_fact_general_ledger()
+
+    Returns:
+        DataFrame with columns: RebateCustomerName, RebateCustomerID, Domestic_Amount
+    """
+    filtered = fact_general_ledger[
+        (fact_general_ledger['Account'].astype(str) == SALES_REBATE_ACCOUNT) &
+        (fact_general_ledger['RebateCustomerName'] != '') &
+        (fact_general_ledger['RebateCustomerName'].notna())
+    ]
+
+    if len(filtered) == 0:
+        return pd.DataFrame(columns=['RebateCustomerName', 'RebateCustomerID', 'Domestic_Amount'])
+
+    return filtered.groupby(
+        ['RebateCustomerName', 'RebateCustomerID'],
+        as_index=False
+    ).agg({'Domestic_Amount': 'sum'})
