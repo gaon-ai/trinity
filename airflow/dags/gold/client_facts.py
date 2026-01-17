@@ -20,11 +20,9 @@ Manual Trigger:
 """
 import json
 from datetime import datetime, timedelta
-from io import StringIO
 
 import pandas as pd
 from airflow import DAG
-from airflow.models import Param
 from airflow.operators.python import PythonOperator
 
 from lib.datalake import read_from_datalake, write_to_datalake, write_metadata, wait_for_file
