@@ -6,7 +6,7 @@ across multiple transformation modules.
 """
 import pandas as pd
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional, Union
 
 from ._constants import (
     CUSTOMER_ID_MAPPING,
@@ -17,12 +17,22 @@ from ._constants import (
     REBATE_EXCLUDED_REFS,
 )
 
+__all__ = [
+    'normalize_customer_id',
+    'normalize_customer_name',
+    'get_rebate_cutoff_date',
+    'is_rebate_eligible',
+    'extract_rebate_customer_name',
+    'get_rebate_customer_id',
+    'extract_rebate_columns',
+]
+
 
 # =============================================================================
 # CUSTOMER NORMALIZATION
 # =============================================================================
 
-def normalize_customer_id(cust_num):
+def normalize_customer_id(cust_num: Any) -> Any:
     """
     Normalize customer ID using mapping.
 
@@ -35,7 +45,7 @@ def normalize_customer_id(cust_num):
     return CUSTOMER_ID_MAPPING.get(cust_num, cust_num)
 
 
-def normalize_customer_name(name):
+def normalize_customer_name(name: Optional[str]) -> Optional[str]:
     """
     Normalize customer name using mapping.
 
@@ -64,7 +74,7 @@ def get_rebate_cutoff_date() -> datetime:
     return datetime(datetime.now().year - 1, 1, 1)
 
 
-def is_rebate_eligible(acct, trans_date) -> bool:
+def is_rebate_eligible(acct: Any, trans_date: Any) -> bool:
     """
     Check if a transaction is eligible for rebate extraction.
 
@@ -95,7 +105,7 @@ def is_rebate_eligible(acct, trans_date) -> bool:
         return False
 
 
-def extract_rebate_customer_name(ref: str) -> str:
+def extract_rebate_customer_name(ref: Optional[str]) -> str:
     """
     Extract customer name from ref field.
 
@@ -142,3 +152,56 @@ def get_rebate_customer_id(customer_name: str) -> Optional[int]:
     if not customer_name:
         return None
     return REBATE_CUSTOMER_ID_MAPPING.get(customer_name)
+
+
+# =============================================================================
+# VECTORIZED REBATE EXTRACTION (for performance)
+# =============================================================================
+
+def extract_rebate_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Extract rebate customer information from DataFrame (vectorized).
+
+    This is a performance-optimized version that processes the entire
+    DataFrame at once instead of row-by-row.
+
+    Args:
+        df: DataFrame with 'acct', 'trans_date', and 'ref' columns
+
+    Returns:
+        DataFrame with 'RebateCustomerName' and 'RebateCustomerID' columns
+    """
+    cutoff_date = get_rebate_cutoff_date()
+
+    # Vectorized eligibility check
+    is_rebate_account = df['acct'].astype(str) == SALES_REBATE_ACCOUNT
+    trans_dates = pd.to_datetime(df['trans_date'], errors='coerce')
+    is_after_cutoff = trans_dates >= cutoff_date
+    is_eligible = is_rebate_account & is_after_cutoff
+
+    # Extract first word from ref (vectorized)
+    ref_series = df['ref'].fillna('')
+
+    # Check exclusions
+    not_excluded_ref = ~ref_series.isin(REBATE_EXCLUDED_REFS)
+    has_space = ref_series.str.contains(' ', na=False)
+
+    # Extract first word
+    first_word = ref_series.str.split(' ').str[0].fillna('')
+
+    # Check prefix exclusions
+    not_excluded_prefix = ~first_word.isin(REBATE_EXCLUDED_PREFIXES)
+
+    # Combine all conditions
+    valid_rebate = is_eligible & not_excluded_ref & has_space & not_excluded_prefix
+
+    # Build result
+    customer_names = first_word.where(valid_rebate, '')
+    customer_ids = customer_names.map(
+        lambda x: REBATE_CUSTOMER_ID_MAPPING.get(x) if x else None
+    )
+
+    return pd.DataFrame({
+        'RebateCustomerName': customer_names,
+        'RebateCustomerID': customer_ids,
+    })

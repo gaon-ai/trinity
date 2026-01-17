@@ -8,6 +8,8 @@ import pandas as pd
 
 from .._helpers import normalize_customer_id, normalize_customer_name
 
+__all__ = ['create_margin_invoice']
+
 
 def create_margin_invoice(
     invoice_item: pd.DataFrame,

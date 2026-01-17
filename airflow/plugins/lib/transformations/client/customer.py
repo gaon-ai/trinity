@@ -8,6 +8,8 @@ import pandas as pd
 
 from .._helpers import normalize_customer_name
 
+__all__ = ['transform_dim_customer']
+
 
 def transform_dim_customer(df: pd.DataFrame) -> pd.DataFrame:
     """

@@ -7,11 +7,9 @@ Source tables:
 import pandas as pd
 
 from .._constants import SALES_REBATE_ACCOUNT
-from .._helpers import (
-    is_rebate_eligible,
-    extract_rebate_customer_name,
-    get_rebate_customer_id,
-)
+from .._helpers import extract_rebate_columns
+
+__all__ = ['transform_fact_general_ledger', 'create_margin_rebate']
 
 
 def transform_fact_general_ledger(df: pd.DataFrame) -> pd.DataFrame:
@@ -33,23 +31,8 @@ def transform_fact_general_ledger(df: pd.DataFrame) -> pd.DataFrame:
         RebateCustomerName: Extracted customer name (for rebate account only)
         RebateCustomerID: Mapped customer ID (for rebate account only)
     """
-    def extract_rebate_info(row):
-        """Extract rebate customer info from a single row."""
-        acct = row.get('acct')
-        trans_date = row.get('trans_date')
-        ref = row.get('ref')
-
-        if not is_rebate_eligible(acct, trans_date):
-            return '', None
-
-        customer_name = extract_rebate_customer_name(ref)
-        customer_id = get_rebate_customer_id(customer_name) if customer_name else None
-
-        return customer_name, customer_id
-
-    # Apply extraction
-    rebate_info = df.apply(extract_rebate_info, axis=1, result_type='expand')
-    rebate_info.columns = ['RebateCustomerName', 'RebateCustomerID']
+    # Use vectorized rebate extraction for performance
+    rebate_info = extract_rebate_columns(df)
 
     return pd.DataFrame({
         'Account': df['acct'],

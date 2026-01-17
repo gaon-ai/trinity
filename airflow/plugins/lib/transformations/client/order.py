@@ -6,6 +6,8 @@ Source tables:
 """
 import pandas as pd
 
+__all__ = ['transform_fact_order_item']
+
 
 def transform_fact_order_item(df: pd.DataFrame) -> pd.DataFrame:
     """

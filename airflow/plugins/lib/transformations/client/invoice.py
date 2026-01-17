@@ -9,6 +9,8 @@ import pandas as pd
 
 from .._helpers import normalize_customer_id
 
+__all__ = ['transform_fact_invoice', 'transform_fact_invoice_detail']
+
 
 def transform_fact_invoice(df: pd.DataFrame) -> pd.DataFrame:
     """

@@ -10,6 +10,15 @@ To extend:
 - Add exclusion rules to REBATE_EXCLUDED_PREFIXES or REBATE_EXCLUDED_REFS
 """
 
+__all__ = [
+    'SALES_REBATE_ACCOUNT',
+    'CUSTOMER_ID_MAPPING',
+    'CUSTOMER_NAME_MAPPING',
+    'REBATE_CUSTOMER_ID_MAPPING',
+    'REBATE_EXCLUDED_PREFIXES',
+    'REBATE_EXCLUDED_REFS',
+]
+
 # =============================================================================
 # ACCOUNT CODES
 # =============================================================================
