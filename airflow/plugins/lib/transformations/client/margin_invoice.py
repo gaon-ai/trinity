@@ -68,6 +68,11 @@ def create_margin_invoice(
         how='left'
     )
 
+    # Convert numeric columns
+    qty = pd.to_numeric(result['qty_invoiced'], errors='coerce').fillna(0)
+    price = pd.to_numeric(result['price'], errors='coerce').fillna(0)
+    cost = pd.to_numeric(result['cost'], errors='coerce').fillna(0)
+
     return pd.DataFrame({
         'Invoice': result['inv_num'].astype(str).str.strip(),
         'CustomerID': result['cust_num'].apply(normalize_customer_id),
@@ -75,8 +80,8 @@ def create_margin_invoice(
         'InvoiceDate': pd.to_datetime(result['tax_date']).dt.date,
         'ProductID': result.get('item'),
         'ProductName': result.get('description'),
-        'QtyInvoiced': result['qty_invoiced'],
-        'ExtendedPrice': result['qty_invoiced'] * result['price'],
-        'TotalCost': result['qty_invoiced'] * result['cost'],
-        'Margin': result['qty_invoiced'] * (result['price'] - result['cost']),
+        'QtyInvoiced': qty,
+        'ExtendedPrice': qty * price,
+        'TotalCost': qty * cost,
+        'Margin': qty * (price - cost),
     })

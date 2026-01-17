@@ -27,13 +27,18 @@ def transform_fact_invoice(df: pd.DataFrame) -> pd.DataFrame:
         TotalCost: qty_invoiced * cost
         Margin: qty_invoiced * (price - cost)
     """
+    # Convert numeric columns
+    qty = pd.to_numeric(df['qty_invoiced'], errors='coerce').fillna(0)
+    price = pd.to_numeric(df['price'], errors='coerce').fillna(0)
+    cost = pd.to_numeric(df['cost'], errors='coerce').fillna(0)
+
     return pd.DataFrame({
         'InvoiceID': df['inv_num'].astype(str).str.strip(),
         'InvoiceDate': pd.to_datetime(df['tax_date']),
-        'QtyInvoiced': df['qty_invoiced'],
-        'ExtendedPrice': df['qty_invoiced'] * df['price'],
-        'TotalCost': df['qty_invoiced'] * df['cost'],
-        'Margin': df['qty_invoiced'] * (df['price'] - df['cost']),
+        'QtyInvoiced': qty,
+        'ExtendedPrice': qty * price,
+        'TotalCost': qty * cost,
+        'Margin': qty * (price - cost),
     })
 
 

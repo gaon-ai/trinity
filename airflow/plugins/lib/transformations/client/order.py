@@ -28,11 +28,11 @@ def transform_fact_order_item(df: pd.DataFrame) -> pd.DataFrame:
     """
     return pd.DataFrame({
         'OrderNumber': df['co_num'],
-        'OrderLine': df['co_line'],
+        'OrderLine': pd.to_numeric(df['co_line'], errors='coerce'),
         'ProductID': df['item'],
-        'QtyOrdered': df['qty_ordered'],
-        'QtyShipped': df['qty_shipped'],
-        'Cost': df['cost'],
-        'Price': df['price'],
+        'QtyOrdered': pd.to_numeric(df['qty_ordered'], errors='coerce').fillna(0),
+        'QtyShipped': pd.to_numeric(df['qty_shipped'], errors='coerce').fillna(0),
+        'Cost': pd.to_numeric(df['cost'], errors='coerce').fillna(0),
+        'Price': pd.to_numeric(df['price'], errors='coerce').fillna(0),
         'ProductName': df['description'],
     })
