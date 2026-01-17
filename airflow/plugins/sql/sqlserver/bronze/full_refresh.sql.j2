@@ -7,10 +7,17 @@ or tables without reliable update timestamps.
 Variables:
     schema: Schema name (e.g., 'dbo')
     table: Table name (e.g., 'inv_item_mst')
+    where_clause: Optional WHERE clause (e.g., 'trans_date >= DATEADD(year, -2, GETDATE())')
 
 Example:
     render_sql('sqlserver/bronze/full_refresh.sql.j2',
                schema='dbo', table='report_entity')
+    render_sql('sqlserver/bronze/full_refresh.sql.j2',
+               schema='dbo', table='ledger_mst',
+               where_clause='trans_date >= DATEADD(year, -2, GETDATE())')
 #}
 SELECT *
 FROM [{{ schema | validate_id }}].[{{ table | validate_id }}]
+{% if where_clause is defined and where_clause %}
+WHERE {{ where_clause }}
+{% endif %}

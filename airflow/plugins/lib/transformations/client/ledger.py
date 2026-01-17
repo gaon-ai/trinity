@@ -36,7 +36,7 @@ def transform_fact_general_ledger(df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame({
         'Account': df['acct'],
-        'Transaction_Date': pd.to_datetime(df['trans_date']),
+        'Transaction_Date': pd.to_datetime(df['trans_date'], format='mixed'),
         'Domestic_Amount': pd.to_numeric(df['dom_amount'], errors='coerce').fillna(0),
         'Foreign_Amount': pd.to_numeric(df['for_amount'], errors='coerce').fillna(0),
         'FromID': df['from_id'],

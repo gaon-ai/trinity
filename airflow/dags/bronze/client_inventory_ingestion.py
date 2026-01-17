@@ -106,7 +106,8 @@ def ingest_table(table_config, **context) -> Dict[str, Any]:
         sql = render_sql(
             'sqlserver/bronze/full_refresh.sql.j2',
             schema=table_config.schema,
-            table=table_config.source_table
+            table=table_config.source_table,
+            where_clause=table_config.pattern_params.get('where_clause')
         )
 
     print(f"  Executing query...")
@@ -203,10 +204,16 @@ with DAG(
     # Create a task for each client table
     ingest_tasks = []
     for table in ALL_TABLES:
+        # Large tables need longer execution timeout
+        execution_timeout = (
+            timedelta(minutes=30) if table.target_table == 'general_ledger'
+            else timedelta(minutes=10)
+        )
         task = PythonOperator(
             task_id=f'ingest_{table.target_table}',
             python_callable=ingest_table,
             op_kwargs={'table_config': table},
+            execution_timeout=execution_timeout,
         )
         ingest_tasks.append(task)
 

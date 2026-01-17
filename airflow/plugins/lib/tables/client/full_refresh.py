@@ -24,8 +24,13 @@ FULL_REFRESH_TABLES = [
         source_table="ledger_mst",
         target_table="general_ledger",
         pattern=IngestionPattern.FULL_REFRESH,
-        primary_key="acct",
+        pattern_params={
+            # Filter to account 422200 (sales rebate) for rebate calculations
+            # This dramatically reduces data volume while getting all needed data
+            "where_clause": "acct = '422200'"
+        },
+        primary_key="trans_num",
         schema="dbo",
-        description="General ledger master data"
+        description="General ledger transactions (sales rebate account only)"
     ),
 ]
