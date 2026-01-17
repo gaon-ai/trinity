@@ -199,9 +199,10 @@ def transform_fact_general_ledger(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({
         'Account': df['acct'],
         'Transaction_Date': pd.to_datetime(df['trans_date']),
-        'Amount': df['dom_amount'],
-        'Ref': df['ref'],
+        'Domestic_Amount': df['dom_amount'],
+        'Foreign_Amount': df['for_amount'],
         'FromID': df['from_id'],
+        'Reference': df['ref'],
         'RebateCustomerName': rebate_info['RebateCustomerName'],
         'RebateCustomerID': rebate_info['RebateCustomerID'],
     })
@@ -298,9 +299,9 @@ def create_margin_rebate(fact_general_ledger: pd.DataFrame) -> pd.DataFrame:
     ]
 
     if len(filtered) == 0:
-        return pd.DataFrame(columns=['RebateCustomerName', 'RebateCustomerID', 'Amount'])
+        return pd.DataFrame(columns=['RebateCustomerName', 'RebateCustomerID', 'Domestic_Amount'])
 
     return filtered.groupby(
         ['RebateCustomerName', 'RebateCustomerID'],
         as_index=False
-    ).agg({'Amount': 'sum'})
+    ).agg({'Domestic_Amount': 'sum'})
