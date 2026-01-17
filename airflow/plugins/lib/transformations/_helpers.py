@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Any, Optional, Union
 
-from ._constants import (
+from lib.transformations._constants import (
     CUSTOMER_ID_MAPPING,
     CUSTOMER_NAME_MAPPING,
     SALES_REBATE_ACCOUNT,

@@ -6,7 +6,7 @@ Source tables:
 """
 import pandas as pd
 
-from .._helpers import normalize_customer_name
+from lib.transformations._helpers import normalize_customer_name
 
 __all__ = ['transform_dim_customer']
 

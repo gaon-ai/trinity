@@ -6,8 +6,8 @@ Source tables:
 """
 import pandas as pd
 
-from .._constants import SALES_REBATE_ACCOUNT
-from .._helpers import extract_rebate_columns
+from lib.transformations._constants import SALES_REBATE_ACCOUNT
+from lib.transformations._helpers import extract_rebate_columns
 
 __all__ = ['transform_fact_general_ledger', 'create_margin_rebate']
 

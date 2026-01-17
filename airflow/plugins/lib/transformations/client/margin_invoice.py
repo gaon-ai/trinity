@@ -6,7 +6,7 @@ This is the primary reporting table for margin analysis.
 """
 import pandas as pd
 
-from .._helpers import normalize_customer_id, normalize_customer_name
+from lib.transformations._helpers import normalize_customer_id, normalize_customer_name
 
 __all__ = ['create_margin_invoice']
 

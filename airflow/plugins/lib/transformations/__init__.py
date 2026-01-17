@@ -31,7 +31,7 @@ Extending:
 """
 
 # Re-export constants for backward compatibility and convenience
-from ._constants import (
+from lib.transformations._constants import (
     SALES_REBATE_ACCOUNT,
     CUSTOMER_ID_MAPPING,
     CUSTOMER_NAME_MAPPING,
@@ -42,7 +42,7 @@ from ._constants import (
 
 # Re-export client transformations for convenience
 # (can also import directly from lib.transformations.client)
-from .client import (
+from lib.transformations.client import (
     transform_fact_invoice,
     transform_fact_invoice_detail,
     transform_fact_order_item,
