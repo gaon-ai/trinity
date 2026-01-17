@@ -80,35 +80,45 @@ See `docs/` for detailed setup documentation.
 ```
 trinity/
 ├── .github/workflows/
-│   └── deploy-airflow.yml      # CI/CD: auto-deploy DAGs on push
+│   └── deploy-airflow.yml         # CI/CD: auto-deploy DAGs on push
 ├── airflow/
-│   ├── Dockerfile              # Custom Airflow image
-│   ├── docker-compose.yaml     # Airflow services
-│   ├── .env.example            # Environment template
+│   ├── Dockerfile                 # Custom Airflow image
+│   ├── docker-compose.yaml        # Airflow services
+│   ├── .env.example               # Environment template
 │   ├── dags/
 │   │   ├── bronze/
-│   │   │   └── sales_ingestion.py    # Bronze: ingest raw data
+│   │   │   ├── sales_ingestion.py         # Bronze: ERP sales data
+│   │   │   └── client_inventory_ingestion.py  # Bronze: Client SQL Server
 │   │   ├── silver/
-│   │   │   └── sales_transform.py    # Silver: clean & transform
+│   │   │   └── sales_transform.py         # Silver: clean & transform
 │   │   └── gold/
-│   │       └── sales_aggregation.py  # Gold: business aggregates
+│   │       ├── sales_aggregation.py       # Gold: ERP aggregates
+│   │       └── client_facts.py            # Gold: Client fact tables
 │   └── plugins/
-│       └── lib/
-│           ├── datasets.py     # Airflow Dataset definitions
-│           ├── datalake.py     # Azure Data Lake operations
-│           └── utils.py        # Path building utilities
-├── infra/
-│   ├── variables.sh            # Configuration
-│   ├── 01-create-vm.sh         # Create VM infrastructure
-│   ├── 02-setup-vm.sh          # Setup Docker/Airflow on VM
-│   ├── 03-create-datalake.sh   # Create Data Lake
-│   ├── 04-create-synapse.sh    # Create Synapse
-│   └── 05-create-azure-sql.sh  # Create Azure SQL (optional)
+│       ├── lib/
+│       │   ├── datasets.py        # Airflow Dataset definitions
+│       │   ├── datalake.py        # Azure Data Lake operations
+│       │   ├── client_db.py       # Client SQL Server operations
+│       │   ├── sql_templates.py   # Jinja2 SQL templating
+│       │   ├── tables/            # Table configurations
+│       │   │   └── client/        # Client table definitions
+│       │   └── transformations/   # Gold layer transformations
+│       │       ├── _constants.py  # Business constants
+│       │       ├── _helpers.py    # Shared helpers
+│       │       └── client/        # Client-specific transforms
+│       └── sql/                   # SQL templates
+│           └── sqlserver/bronze/  # Bronze query templates
 ├── scripts/
-│   ├── synapse_setup.py        # Configure Synapse credentials & views
-│   ├── local-dev.sh            # Local Airflow development
-│   └── validate_dags.py        # DAG syntax validation
-└── docs/                       # Local docs with credentials (gitignored)
+│   ├── variables.sh               # Configuration
+│   ├── 01-create-vm.sh            # Create VM infrastructure
+│   ├── 02-setup-vm.sh             # Setup Docker/Airflow on VM
+│   ├── 03-create-datalake.sh      # Create Data Lake
+│   ├── 04-create-synapse.sh       # Create Synapse
+│   ├── 05-create-azure-sql.sh     # Create Azure SQL (optional)
+│   ├── synapse_setup.py           # Configure Synapse credentials
+│   ├── local-dev.sh               # Local Airflow development
+│   └── validate_dags.py           # DAG syntax validation
+└── docs/                          # Documentation
 ```
 
 ## Local Development
@@ -144,7 +154,36 @@ DAGs automatically deploy to the VM when pushing to `main`:
 
 ## Data Pipeline
 
-Multi-DAG medallion architecture with Dataset-based triggers:
+Multi-DAG medallion architecture with Dataset-based triggers.
+
+### Client Data Pipeline (Bronze → Gold)
+
+```
+┌───────────────────────────┐    Dataset      ┌─────────────────────────┐
+│  bronze_client_inventory  │─BRONZE_CLIENT───▶│  gold_client_facts      │
+│  _ingestion               │                  │                         │
+│                           │                  │  • fact_invoice         │
+│  • invoice_item           │                  │  • fact_invoice_detail  │
+│  • invoice_header         │                  │  • fact_order_item      │
+│  • order_item             │                  │  • dim_customer         │
+│  • customer_address       │                  │  • margin_invoice       │
+│  • general_ledger         │                  │  • fact_general_ledger  │
+│                           │                  │  • margin_rebate        │
+└───────────────────────────┘                  └─────────────────────────┘
+        @daily                                    On BRONZE_CLIENT_DATA
+```
+
+| Gold Table | Description | Source |
+|------------|-------------|--------|
+| fact_invoice | Invoice line items with margins | invoice_item |
+| fact_invoice_detail | Invoice to customer mapping | invoice_header |
+| fact_order_item | Order details | order_item |
+| dim_customer | Customer dimension (normalized names) | customer_address |
+| margin_invoice | Denormalized reporting table | All tables joined |
+| fact_general_ledger | General ledger (sales rebate) | general_ledger |
+| margin_rebate | Aggregated rebates by customer | general_ledger |
+
+### ERP Sales Pipeline (Bronze → Silver → Gold)
 
 ```
 ┌───────────────────┐    Dataset     ┌──────────────────┐    Dataset     ┌─────────────────────┐
@@ -163,37 +202,43 @@ Multi-DAG medallion architecture with Dataset-based triggers:
 - **Dataset**: DAGs publish events when data is written (`outlets=[DATASET]`)
 - **Trigger**: Downstream DAGs automatically run when upstream Dataset updates
 
+### Data Lake Paths
+
 | Layer | Path | Format |
 |-------|------|--------|
-| Bronze | `bronze/erp/sales/{YYYY-MM-DD-HH}/raw.json` | JSON |
+| Bronze (Client) | `bronze/client/{table}/{YYYY-MM-DD-HH}/data.json` | JSON |
+| Bronze (ERP) | `bronze/erp/sales/{YYYY-MM-DD-HH}/raw.json` | JSON |
 | Silver | `silver/sales/{YYYY-MM-DD-HH}/cleaned.csv` | CSV |
-| Gold | `gold/sales_by_region/{YYYY-MM-DD-HH}/data.csv` | CSV |
-| Gold | `gold/sales_by_product/{YYYY-MM-DD-HH}/data.csv` | CSV |
-| Gold | `gold/daily_summary/{YYYY-MM-DD-HH}/summary.json` | JSON |
+| Gold | `gold/{table}/{YYYY-MM-DD-HH}/data.csv` | CSV |
 
 ## Synapse Queries
 
-Pre-built views auto-include new data (wildcard `*` matches all partitions):
+Query gold tables using OPENROWSET with wildcards (matches all partitions):
 
 ```sql
--- Use the 'trinity' database
-USE trinity;
+-- Client Gold Tables
+SELECT * FROM OPENROWSET(
+    BULK 'https://<storage>.dfs.core.windows.net/gold/fact_invoice/*/data.csv',
+    FORMAT = 'CSV', PARSER_VERSION = '2.0', HEADER_ROW = TRUE
+) AS fact_invoice;
 
--- Query Gold aggregates directly via views
-SELECT * FROM sales_by_region;    -- Revenue by region
-SELECT * FROM sales_by_product;   -- Revenue by product
-SELECT * FROM silver_sales;       -- Cleaned sales data
+SELECT * FROM OPENROWSET(
+    BULK 'https://<storage>.dfs.core.windows.net/gold/margin_invoice/*/data.csv',
+    FORMAT = 'CSV', PARSER_VERSION = '2.0', HEADER_ROW = TRUE
+) AS margin_invoice;
+
+SELECT * FROM OPENROWSET(
+    BULK 'https://<storage>.dfs.core.windows.net/gold/margin_rebate/*/data.csv',
+    FORMAT = 'CSV', PARSER_VERSION = '2.0', HEADER_ROW = TRUE
+) AS margin_rebate;
 ```
 
-Views are created by `scripts/synapse_setup.py`. They use OPENROWSET with wildcards:
+Or use views created by `scripts/synapse_setup.py`:
 
 ```sql
--- Example: How views work internally
-SELECT * FROM OPENROWSET(
-    BULK 'gold/sales_by_region/*/data.csv',  -- Wildcard picks up all partitions
-    DATA_SOURCE = 'TrinityLake',
-    FORMAT = 'CSV', PARSER_VERSION = '2.0', FIRSTROW = 2
-) WITH (...) AS data
+USE trinity;
+SELECT * FROM sales_by_region;    -- Revenue by region
+SELECT * FROM sales_by_product;   -- Revenue by product
 ```
 
 ## Costs (Estimated Monthly)

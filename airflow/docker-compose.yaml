@@ -16,6 +16,8 @@ x-airflow-common: &airflow-common
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'false'
     AIRFLOW__WEBSERVER__RBAC: 'true'
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    # Increase zombie threshold for long-running tasks (default 300s)
+    AIRFLOW__SCHEDULER__SCHEDULER_ZOMBIE_TASK_THRESHOLD: '1800'
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
     # Data Lake connection
     AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-}
