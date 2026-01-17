@@ -12,6 +12,8 @@ Tables:
 - fact_order_item: Order details
 - dim_customer: Customer dimension with normalized names
 - margin_invoice: Denormalized reporting table (joins all)
+- fact_general_ledger: General ledger with rebate customer extraction
+- margin_rebate: Rebate aggregation by customer
 
 Manual Trigger:
     airflow dags trigger gold_client_facts
@@ -33,6 +35,8 @@ from lib.transformations.client_gold import (
     transform_fact_order_item,
     transform_dim_customer,
     create_margin_invoice,
+    transform_fact_general_ledger,
+    create_margin_rebate,
 )
 from lib.datasets import (
     BRONZE_CLIENT_DATA,
@@ -48,6 +52,7 @@ BRONZE_TABLES = {
     'invoice_header': 'client/invoice_header',
     'order_item': 'client/order_item',
     'customer_address': 'client/customer_address',
+    'general_ledger': 'client/general_ledger',
 }
 
 # Wait configuration
@@ -197,6 +202,29 @@ def create_margin_invoice_table(**context):
     return {'table': 'margin_invoice', 'records': len(result), 'path': path}
 
 
+def create_fact_general_ledger(**context):
+    """Create fact_general_ledger from general_ledger."""
+    print("Creating fact_general_ledger...")
+    df, partition = _load_bronze_table('general_ledger')
+    result = transform_fact_general_ledger(df)
+    path = _write_gold_table(result, 'fact_general_ledger', partition, ['general_ledger'])
+    return {'table': 'fact_general_ledger', 'records': len(result), 'path': path}
+
+
+def create_margin_rebate_table(**context):
+    """Create margin_rebate by aggregating from fact_general_ledger."""
+    print("Creating margin_rebate...")
+
+    # First create fact_general_ledger
+    df, partition = _load_bronze_table('general_ledger')
+    fact_gl = transform_fact_general_ledger(df)
+
+    # Then aggregate to margin_rebate
+    result = create_margin_rebate(fact_gl)
+    path = _write_gold_table(result, 'margin_rebate', partition, ['general_ledger'])
+    return {'table': 'margin_rebate', 'records': len(result), 'path': path}
+
+
 # =============================================================================
 # DAG DEFINITION
 # =============================================================================
@@ -249,5 +277,19 @@ with DAG(
         outlets=[GOLD_MARGIN_INVOICE],
     )
 
-    # Fact/dim tables run in parallel, then margin_invoice
+    # General ledger tables (independent of invoice tables)
+    fact_general_ledger = PythonOperator(
+        task_id='create_fact_general_ledger',
+        python_callable=create_fact_general_ledger,
+    )
+
+    margin_rebate = PythonOperator(
+        task_id='create_margin_rebate',
+        python_callable=create_margin_rebate_table,
+    )
+
+    # Task dependencies:
+    # - Invoice-related facts run in parallel, then margin_invoice
+    # - General ledger facts run in parallel, then margin_rebate
     [fact_invoice, fact_invoice_detail, fact_order_item, dim_customer] >> margin_invoice
+    fact_general_ledger >> margin_rebate

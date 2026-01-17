@@ -7,14 +7,27 @@ Transforms bronze data into business-ready fact and dimension tables:
 - fact_order_item: Order details
 - dim_customer: Customer dimension with normalized names
 - margin_invoice: Denormalized reporting table
+- fact_general_ledger: General ledger with rebate customer extraction
+- margin_rebate: Rebate aggregation by customer
 """
 import pandas as pd
+from datetime import datetime
 
 
 # Customer ID normalization - consolidate related customer IDs
 CUSTOMER_ID_MAPPING = {
     1064: 1015,  # CVS/Omnicare → CVS
     1314: 1005,  # Owens variant → Owens
+}
+
+# Rebate customer name to ID mapping (for account 422200)
+REBATE_CUSTOMER_ID_MAPPING = {
+    'Mckesson': 1004,
+    'Cardinal': 1008,
+    'Schein': 1030,
+    'Medline': 1007,
+    'Owens': 1005,
+    'Seneca': 1041,
 }
 
 # Customer name normalization - standardize customer names
@@ -173,3 +186,135 @@ def create_margin_invoice(
     })
 
     return output
+
+
+def _extract_rebate_customer_name(ref, acct, trans_date):
+    """
+    Extract rebate customer name from ref field.
+
+    Only applies to:
+    - Account 422200 (sales rebate)
+    - Transactions from last year onwards
+    - ref field contains a space (has customer name prefix)
+    - Not 'Retro' or 'Income' prefixes
+    - Not 'Owens/Retro Rebate FY 2025' specifically
+    """
+    if pd.isna(ref) or pd.isna(acct) or pd.isna(trans_date):
+        return ''
+
+    # Only process account 422200
+    if str(acct) != '422200':
+        return ''
+
+    # Check date is from last year onwards
+    try:
+        if isinstance(trans_date, str):
+            trans_dt = pd.to_datetime(trans_date)
+        else:
+            trans_dt = trans_date
+        cutoff = datetime(datetime.now().year - 1, 1, 1)
+        if trans_dt < cutoff:
+            return ''
+    except:
+        return ''
+
+    # Skip specific exclusions
+    if ref == 'Owens/Retro Rebate FY 2025':
+        return ''
+
+    # Extract first word (before space)
+    if ' ' in ref:
+        first_word = ref.split(' ')[0]
+        # Skip 'Retro' and 'Income' prefixes
+        if first_word in ('Retro', 'Income'):
+            return ''
+        return first_word
+
+    return ''
+
+
+def _get_rebate_customer_id(customer_name, acct, trans_date):
+    """Map rebate customer name to customer ID."""
+    if not customer_name or pd.isna(customer_name):
+        return ''
+
+    # Only for account 422200 and recent transactions
+    if str(acct) != '422200':
+        return ''
+
+    try:
+        if isinstance(trans_date, str):
+            trans_dt = pd.to_datetime(trans_date)
+        else:
+            trans_dt = trans_date
+        cutoff = datetime(datetime.now().year - 1, 1, 1)
+        if trans_dt < cutoff:
+            return ''
+    except:
+        return ''
+
+    return REBATE_CUSTOMER_ID_MAPPING.get(customer_name, '')
+
+
+def transform_fact_general_ledger(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Transform general_ledger → fact_general_ledger.
+
+    Source: bronze/client/general_ledger (from ledger_mst)
+
+    Extracts rebate customer information from ref field for account 422200.
+    """
+    # Extract rebate customer name and ID
+    rebate_names = df.apply(
+        lambda row: _extract_rebate_customer_name(
+            row.get('ref'), row.get('acct'), row.get('trans_date')
+        ), axis=1
+    )
+
+    rebate_ids = df.apply(
+        lambda row: _get_rebate_customer_id(
+            _extract_rebate_customer_name(
+                row.get('ref'), row.get('acct'), row.get('trans_date')
+            ),
+            row.get('acct'),
+            row.get('trans_date')
+        ), axis=1
+    )
+
+    result = pd.DataFrame({
+        'Account': df['acct'],
+        'Transaction_Date': pd.to_datetime(df['trans_date']),
+        'Amount': df['dom_amount'],
+        'Ref': df['ref'],
+        'FromID': df['from_id'],
+        'RebateCustomerName': rebate_names,
+        'RebateCustomerID': rebate_ids,
+    })
+
+    return result
+
+
+def create_margin_rebate(fact_general_ledger: pd.DataFrame) -> pd.DataFrame:
+    """
+    Create margin_rebate by aggregating rebates from fact_general_ledger.
+
+    Filters to account 422200 (sales rebate) with valid rebate customer names,
+    then groups by customer to sum amounts.
+    """
+    # Filter to rebate account with valid customer names
+    filtered = fact_general_ledger[
+        (fact_general_ledger['Account'].astype(str) == '422200') &
+        (fact_general_ledger['RebateCustomerName'] != '') &
+        (fact_general_ledger['RebateCustomerName'].notna())
+    ].copy()
+
+    if len(filtered) == 0:
+        return pd.DataFrame(columns=['RebateCustomerName', 'RebateCustomerID', 'Amount'])
+
+    # Aggregate by customer
+    result = filtered.groupby(
+        ['RebateCustomerName', 'RebateCustomerID'],
+        as_index=False
+    ).agg({'Amount': 'sum'})
+
+    return result
