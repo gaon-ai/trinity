@@ -24,3 +24,5 @@ GOLD_FACT_INVOICE_DETAIL = Dataset("azure://trinitylake/gold/fact_invoice_detail
 GOLD_FACT_ORDER_ITEM = Dataset("azure://trinitylake/gold/fact_order_item")
 GOLD_DIM_CUSTOMER = Dataset("azure://trinitylake/gold/dim_customer")
 GOLD_MARGIN_INVOICE = Dataset("azure://trinitylake/gold/margin_invoice")
+GOLD_FACT_GENERAL_LEDGER = Dataset("azure://trinitylake/gold/fact_general_ledger")
+GOLD_MARGIN_REBATE = Dataset("azure://trinitylake/gold/margin_rebate")

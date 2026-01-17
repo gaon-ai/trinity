@@ -39,8 +39,12 @@ from lib.transformations.client import (
 from lib.datasets import (
     BRONZE_CLIENT_DATA,
     GOLD_FACT_INVOICE,
+    GOLD_FACT_INVOICE_DETAIL,
+    GOLD_FACT_ORDER_ITEM,
     GOLD_DIM_CUSTOMER,
     GOLD_MARGIN_INVOICE,
+    GOLD_FACT_GENERAL_LEDGER,
+    GOLD_MARGIN_REBATE,
 )
 
 
@@ -255,11 +259,13 @@ with DAG(
     fact_invoice_detail = PythonOperator(
         task_id='create_fact_invoice_detail',
         python_callable=create_fact_invoice_detail,
+        outlets=[GOLD_FACT_INVOICE_DETAIL],
     )
 
     fact_order_item = PythonOperator(
         task_id='create_fact_order_item',
         python_callable=create_fact_order_item,
+        outlets=[GOLD_FACT_ORDER_ITEM],
     )
 
     dim_customer = PythonOperator(
@@ -279,11 +285,13 @@ with DAG(
     fact_general_ledger = PythonOperator(
         task_id='create_fact_general_ledger',
         python_callable=create_fact_general_ledger,
+        outlets=[GOLD_FACT_GENERAL_LEDGER],
     )
 
     margin_rebate = PythonOperator(
         task_id='create_margin_rebate',
         python_callable=create_margin_rebate_table,
+        outlets=[GOLD_MARGIN_REBATE],
     )
 
     # Task dependencies:
