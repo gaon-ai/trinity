@@ -38,6 +38,7 @@ from lib.sync_metadata import (
 )
 from lib.tables import IngestionPattern
 from lib.tables.client import ALL_TABLES
+from lib.datasets import BRONZE_CLIENT_DATA
 
 
 def ingest_table(table_config, **context) -> Dict[str, Any]:
@@ -200,9 +201,21 @@ with DAG(
 ) as dag:
 
     # Create a task for each client table
+    ingest_tasks = []
     for table in ALL_TABLES:
-        PythonOperator(
+        task = PythonOperator(
             task_id=f'ingest_{table.target_table}',
             python_callable=ingest_table,
             op_kwargs={'table_config': table},
         )
+        ingest_tasks.append(task)
+
+    # Final task to signal completion and trigger downstream gold DAG
+    from airflow.operators.empty import EmptyOperator
+    complete = EmptyOperator(
+        task_id='ingestion_complete',
+        outlets=[BRONZE_CLIENT_DATA],  # Triggers gold_client_facts DAG
+    )
+
+    # All ingest tasks must complete before signaling completion
+    ingest_tasks >> complete
