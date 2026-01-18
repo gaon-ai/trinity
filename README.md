@@ -211,34 +211,54 @@ Multi-DAG medallion architecture with Dataset-based triggers.
 | Silver | `silver/sales/{YYYY-MM-DD-HH}/cleaned.csv` | CSV |
 | Gold | `gold/{table}/{YYYY-MM-DD-HH}/data.csv` | CSV |
 
-## Synapse Queries
+## Synapse & Power BI
 
-Query gold tables using OPENROWSET with wildcards (matches all partitions):
+### Setup Views
+
+Run the setup script to create views in Synapse (one-time setup):
+
+```bash
+export SYNAPSE_SERVER="trinitysynapse-ondemand.sql.azuresynapse.net"
+export SYNAPSE_PASSWORD="your-synapse-password"
+export STORAGE_ACCOUNT_NAME="trinitylake906365"
+export STORAGE_ACCOUNT_KEY="your-storage-key"
+
+python3 scripts/synapse_setup.py
+```
+
+This creates views for all gold tables, enabling simple queries:
 
 ```sql
--- Client Gold Tables
-SELECT * FROM OPENROWSET(
-    BULK 'https://<storage>.dfs.core.windows.net/gold/fact_invoice/*/data.csv',
-    FORMAT = 'CSV', PARSER_VERSION = '2.0', HEADER_ROW = TRUE
-) AS fact_invoice;
+USE trinity;
 
+-- Client Gold Tables (main reporting)
+SELECT * FROM margin_invoice;      -- Invoice margins by customer
+SELECT * FROM margin_rebate;       -- Rebates by customer
+SELECT * FROM fact_invoice;        -- Invoice line items
+SELECT * FROM dim_customer;        -- Customer dimension
+SELECT * FROM fact_general_ledger; -- General ledger
+
+-- ERP Gold Tables
+SELECT * FROM sales_by_region;     -- Revenue by region
+SELECT * FROM sales_by_product;    -- Revenue by product
+```
+
+### Power BI Connection
+
+1. **Get Data** → Azure → **Azure Synapse Analytics SQL**
+2. **Server**: `trinitysynapse-ondemand.sql.azuresynapse.net`
+3. **Database**: `trinity`
+4. Select tables/views and choose Import or DirectQuery mode
+
+### Raw OPENROWSET Queries
+
+Query gold tables directly without views (matches all partitions):
+
+```sql
 SELECT * FROM OPENROWSET(
     BULK 'https://<storage>.dfs.core.windows.net/gold/margin_invoice/*/data.csv',
     FORMAT = 'CSV', PARSER_VERSION = '2.0', HEADER_ROW = TRUE
 ) AS margin_invoice;
-
-SELECT * FROM OPENROWSET(
-    BULK 'https://<storage>.dfs.core.windows.net/gold/margin_rebate/*/data.csv',
-    FORMAT = 'CSV', PARSER_VERSION = '2.0', HEADER_ROW = TRUE
-) AS margin_rebate;
-```
-
-Or use views created by `scripts/synapse_setup.py`:
-
-```sql
-USE trinity;
-SELECT * FROM sales_by_region;    -- Revenue by region
-SELECT * FROM sales_by_product;   -- Revenue by product
 ```
 
 ## Costs (Estimated Monthly)

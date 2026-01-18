@@ -242,11 +242,199 @@ def setup_synapse():
     except pymssql.Error as e:
         print(f"Error creating silver_sales: {e}")
 
-    # Test query
+    # =========================================================================
+    # CLIENT GOLD LAYER VIEWS
+    # =========================================================================
+    print("\n" + "=" * 60)
+    print("Creating views for Client Gold layer...")
+    print("=" * 60 + "\n")
+
+    # View: fact_invoice (invoice line items with margins)
+    print("Creating view: fact_invoice...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS fact_invoice")
+        cursor.execute("""
+            CREATE VIEW fact_invoice AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'gold/fact_invoice/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                InvoiceID VARCHAR(50),
+                InvoiceDate DATE,
+                QtyInvoiced DECIMAL(18,4),
+                ExtendedPrice DECIMAL(18,4),
+                TotalCost DECIMAL(18,4),
+                Margin DECIMAL(18,4)
+            ) AS data
+        """)
+        print("✅ View fact_invoice created!")
+    except pymssql.Error as e:
+        print(f"Error creating fact_invoice: {e}")
+
+    # View: fact_invoice_detail (invoice to customer mapping)
+    print("Creating view: fact_invoice_detail...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS fact_invoice_detail")
+        cursor.execute("""
+            CREATE VIEW fact_invoice_detail AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'gold/fact_invoice_detail/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                InvoiceID VARCHAR(50),
+                CustomerID INT
+            ) AS data
+        """)
+        print("✅ View fact_invoice_detail created!")
+    except pymssql.Error as e:
+        print(f"Error creating fact_invoice_detail: {e}")
+
+    # View: fact_order_item (order details)
+    print("Creating view: fact_order_item...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS fact_order_item")
+        cursor.execute("""
+            CREATE VIEW fact_order_item AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'gold/fact_order_item/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                OrderNumber VARCHAR(50),
+                OrderLine INT,
+                ProductID VARCHAR(50),
+                QtyOrdered DECIMAL(18,4),
+                QtyShipped DECIMAL(18,4),
+                Cost DECIMAL(18,4),
+                Price DECIMAL(18,4),
+                ProductName VARCHAR(200)
+            ) AS data
+        """)
+        print("✅ View fact_order_item created!")
+    except pymssql.Error as e:
+        print(f"Error creating fact_order_item: {e}")
+
+    # View: dim_customer (customer dimension)
+    print("Creating view: dim_customer...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS dim_customer")
+        cursor.execute("""
+            CREATE VIEW dim_customer AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'gold/dim_customer/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                CustomerID INT,
+                CustomerSequence INT,
+                CustomerName VARCHAR(200)
+            ) AS data
+        """)
+        print("✅ View dim_customer created!")
+    except pymssql.Error as e:
+        print(f"Error creating dim_customer: {e}")
+
+    # View: margin_invoice (denormalized reporting table)
+    print("Creating view: margin_invoice...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS margin_invoice")
+        cursor.execute("""
+            CREATE VIEW margin_invoice AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'gold/margin_invoice/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                Invoice VARCHAR(50),
+                CustomerID INT,
+                CustomerName VARCHAR(200),
+                InvoiceDate DATE,
+                ProductID VARCHAR(50),
+                ProductName VARCHAR(200),
+                QtyInvoiced DECIMAL(18,4),
+                ExtendedPrice DECIMAL(18,4),
+                TotalCost DECIMAL(18,4),
+                Margin DECIMAL(18,4)
+            ) AS data
+        """)
+        print("✅ View margin_invoice created!")
+    except pymssql.Error as e:
+        print(f"Error creating margin_invoice: {e}")
+
+    # View: fact_general_ledger (general ledger with rebate info)
+    print("Creating view: fact_general_ledger...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS fact_general_ledger")
+        cursor.execute("""
+            CREATE VIEW fact_general_ledger AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'gold/fact_general_ledger/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                Account VARCHAR(20),
+                Transaction_Date DATE,
+                Domestic_Amount DECIMAL(18,4),
+                Foreign_Amount DECIMAL(18,4),
+                FromID VARCHAR(50),
+                Reference VARCHAR(200),
+                RebateCustomerName VARCHAR(100),
+                RebateCustomerID INT
+            ) AS data
+        """)
+        print("✅ View fact_general_ledger created!")
+    except pymssql.Error as e:
+        print(f"Error creating fact_general_ledger: {e}")
+
+    # View: margin_rebate (rebates aggregated by customer)
+    print("Creating view: margin_rebate...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS margin_rebate")
+        cursor.execute("""
+            CREATE VIEW margin_rebate AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'gold/margin_rebate/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                RebateCustomerName VARCHAR(100),
+                RebateCustomerID INT,
+                Domestic_Amount DECIMAL(18,4)
+            ) AS data
+        """)
+        print("✅ View margin_rebate created!")
+    except pymssql.Error as e:
+        print(f"Error creating margin_rebate: {e}")
+
+    # Test queries
     print("\n" + "=" * 60)
     print("Testing views...")
     print("=" * 60 + "\n")
 
+    # Test ERP views
     try:
         cursor.execute("SELECT TOP 5 * FROM sales_by_region")
         rows = cursor.fetchall()
@@ -257,13 +445,31 @@ def setup_synapse():
             print("-" * 50)
             for row in rows:
                 print(f"{row[0]:<10} {row[1]:<8} {row[2]:<8} ${row[3]:<11.2f} {row[4]:<12}")
-            print(f"\n✅ Views created and working!")
+            print(f"\n✅ ERP views working!")
         else:
-            print("Views created but no data yet. Run the Airflow DAG first.")
+            print("ERP views created but no data yet.")
 
     except pymssql.Error as e:
-        print(f"Query error: {e}")
-        print("\nViews created but test failed. Run the Airflow DAG to populate data.")
+        print(f"ERP views not populated yet: {e}")
+
+    # Test Client Gold views
+    print()
+    try:
+        cursor.execute("SELECT TOP 5 * FROM margin_rebate")
+        rows = cursor.fetchall()
+
+        if rows:
+            print("margin_rebate sample:")
+            print(f"{'Customer':<15} {'ID':<8} {'Amount':<15}")
+            print("-" * 40)
+            for row in rows:
+                print(f"{row[0]:<15} {row[1] or 'N/A':<8} ${row[2]:>12,.2f}")
+            print(f"\n✅ Client Gold views working!")
+        else:
+            print("Client Gold views created but no data yet.")
+
+    except pymssql.Error as e:
+        print(f"Client Gold views not populated yet: {e}")
 
     conn.close()
 
@@ -278,20 +484,34 @@ Data Source:     TrinityLake
 Credential:      TrinityStorageKey
 
 Views Created:
-- sales_by_region   (Gold layer - regional aggregates)
-- sales_by_product  (Gold layer - product aggregates)
-- silver_sales      (Silver layer - cleaned sales data)
+
+  ERP Pipeline:
+  - sales_by_region   (Gold - regional aggregates)
+  - sales_by_product  (Gold - product aggregates)
+  - silver_sales      (Silver - cleaned sales data)
+
+  Client Pipeline:
+  - fact_invoice          (Gold - invoice line items with margins)
+  - fact_invoice_detail   (Gold - invoice to customer mapping)
+  - fact_order_item       (Gold - order details)
+  - dim_customer          (Gold - customer dimension)
+  - margin_invoice        (Gold - denormalized reporting table)
+  - fact_general_ledger   (Gold - general ledger with rebate info)
+  - margin_rebate         (Gold - rebates aggregated by customer)
 
 To query in Synapse Studio or Power BI:
 1. Select database: {CONFIG['database']} (NOT master)
 2. Query the views directly:
 
--- Gold layer aggregates
+-- Client Gold layer (main reporting tables)
+SELECT * FROM margin_invoice;      -- Invoice margins by customer
+SELECT * FROM margin_rebate;       -- Rebates by customer
+SELECT * FROM fact_invoice;        -- Invoice details
+SELECT * FROM dim_customer;        -- Customer dimension
+
+-- ERP Gold layer
 SELECT * FROM sales_by_region;
 SELECT * FROM sales_by_product;
-
--- Silver layer detail
-SELECT * FROM silver_sales;
 
 Power BI Connection:
 - Server: {CONFIG['server']}
