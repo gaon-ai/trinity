@@ -11,7 +11,10 @@ __all__ = ['create_gold_views', 'get_synapse_config']
 
 
 # View definitions for client gold tables
-# Format: {view_name: {bulk_path, columns}}
+# Format: {view_name: {bulk_path, columns, select (optional)}}
+# - bulk_path: Path pattern to CSV files in Data Lake
+# - columns: WITH clause column definitions for OPENROWSET
+# - select: Optional custom SELECT clause (for type conversions), defaults to *
 CLIENT_GOLD_VIEWS = {
     'fact_invoice': {
         'bulk_path': 'gold/fact_invoice/*/data.csv',

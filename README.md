@@ -215,12 +215,23 @@ Multi-DAG medallion architecture with Dataset-based triggers.
 
 ### Setup Views
 
-Run the setup script to create views in Synapse (one-time setup):
+**Option 1: Automatic (Recommended)**
+
+Views are automatically created/updated by the `gold_client_facts` DAG when Synapse credentials are configured in `.env`:
 
 ```bash
-export SYNAPSE_SERVER="trinitysynapse-ondemand.sql.azuresynapse.net"
+SYNAPSE_SERVER=your_workspace-ondemand.sql.azuresynapse.net
+SYNAPSE_PASSWORD=your-synapse-password
+```
+
+**Option 2: Manual Setup**
+
+Run the setup script once to create database, credentials, and views:
+
+```bash
+export SYNAPSE_SERVER="your_workspace-ondemand.sql.azuresynapse.net"
 export SYNAPSE_PASSWORD="your-synapse-password"
-export STORAGE_ACCOUNT_NAME="trinitylake906365"
+export STORAGE_ACCOUNT_NAME="your_storage_account"
 export STORAGE_ACCOUNT_KEY="your-storage-key"
 
 python3 scripts/synapse_setup.py
@@ -246,9 +257,10 @@ SELECT * FROM sales_by_product;    -- Revenue by product
 ### Power BI Connection
 
 1. **Get Data** → Azure → **Azure Synapse Analytics SQL**
-2. **Server**: `trinitysynapse-ondemand.sql.azuresynapse.net`
+2. **Server**: `your_workspace-ondemand.sql.azuresynapse.net`
 3. **Database**: `trinity`
-4. Select tables/views and choose Import or DirectQuery mode
+4. **Authentication**: SQL Server or Azure AD
+5. Select tables/views and choose Import or DirectQuery mode
 
 ### Raw OPENROWSET Queries
 
