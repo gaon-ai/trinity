@@ -31,6 +31,11 @@ x-airflow-common: &airflow-common
     # Using AIRFLOW_CONN_ prefix for automatic connection creation
     # Format: mssql://user:password@host:port/database
     AIRFLOW_CONN_CLIENT_SQLSERVER: ${AIRFLOW_CONN_CLIENT_SQLSERVER:-}
+    # Synapse Serverless SQL (for creating views)
+    SYNAPSE_SERVER: ${SYNAPSE_SERVER:-}
+    SYNAPSE_USER: ${SYNAPSE_USER:-sqladmin}
+    SYNAPSE_PASSWORD: ${SYNAPSE_PASSWORD:-}
+    SYNAPSE_DATABASE: ${SYNAPSE_DATABASE:-trinity}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs

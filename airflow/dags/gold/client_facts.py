@@ -47,6 +47,7 @@ from lib.datasets import (
     GOLD_FACT_GENERAL_LEDGER,
     GOLD_MARGIN_REBATE,
 )
+from lib.synapse import create_gold_views
 
 
 # =============================================================================
@@ -220,6 +221,19 @@ def create_margin_rebate_task(**context):
     return {'table': 'margin_rebate', 'records': len(result), 'path': path}
 
 
+def update_synapse_views_task(**context):
+    """Create or update Synapse views for all gold tables."""
+    print("Updating Synapse views...")
+    results = create_gold_views()
+
+    created = sum(1 for v in results.values() if v == 'created')
+    skipped = sum(1 for v in results.values() if v == 'skipped')
+    errors = sum(1 for v in results.values() if v == 'error')
+
+    print(f"Synapse views: {created} created, {skipped} skipped, {errors} errors")
+    return results
+
+
 # =============================================================================
 # DAG DEFINITION
 # =============================================================================
@@ -288,6 +302,13 @@ with DAG(
         outlets=[GOLD_MARGIN_REBATE],
     )
 
+    # Synapse view creation (optional - runs if SYNAPSE_SERVER is configured)
+    synapse_views = PythonOperator(
+        task_id='update_synapse_views',
+        python_callable=update_synapse_views_task,
+    )
+
     # Dependencies
     [fact_invoice, fact_invoice_detail, fact_order_item, dim_customer] >> margin_invoice
     fact_general_ledger >> margin_rebate
+    [margin_invoice, margin_rebate] >> synapse_views
