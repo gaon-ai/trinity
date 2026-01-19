@@ -69,6 +69,7 @@ CLIENT_GOLD_VIEWS = {
     },
     'fact_general_ledger': {
         'bulk_path': 'gold/fact_general_ledger/*/data.csv',
+        # RebateCustomerID stored as float in CSV, need VARCHAR + CAST
         'columns': """
             Account VARCHAR(20),
             Transaction_Date DATE,
@@ -77,15 +78,31 @@ CLIENT_GOLD_VIEWS = {
             FromID VARCHAR(50),
             Reference VARCHAR(200),
             RebateCustomerName VARCHAR(100),
-            RebateCustomerID INT
+            RebateCustomerID VARCHAR(20)
+        """,
+        'select': """
+            Account,
+            Transaction_Date,
+            Domestic_Amount,
+            Foreign_Amount,
+            FromID,
+            Reference,
+            RebateCustomerName,
+            CAST(CAST(NULLIF(RebateCustomerID, '') AS DECIMAL(10,0)) AS INT) as RebateCustomerID
         """,
     },
     'margin_rebate': {
         'bulk_path': 'gold/margin_rebate/*/data.csv',
+        # RebateCustomerID stored as float in CSV, need VARCHAR + CAST
         'columns': """
             RebateCustomerName VARCHAR(100),
-            RebateCustomerID INT,
+            RebateCustomerID VARCHAR(20),
             Domestic_Amount DECIMAL(18,4)
+        """,
+        'select': """
+            RebateCustomerName,
+            CAST(CAST(NULLIF(RebateCustomerID, '') AS DECIMAL(10,0)) AS INT) as RebateCustomerID,
+            Domestic_Amount
         """,
     },
 }
@@ -156,9 +173,11 @@ def create_gold_views(views: Optional[List[str]] = None) -> Dict[str, str]:
 
             try:
                 cursor.execute(f"DROP VIEW IF EXISTS {view_name}")
+                # Use custom SELECT if defined (for type conversions), else SELECT *
+                select_clause = view_def.get('select', '*')
                 cursor.execute(f"""
                     CREATE VIEW {view_name} AS
-                    SELECT *
+                    SELECT {select_clause}
                     FROM OPENROWSET(
                         BULK '{view_def['bulk_path']}',
                         DATA_SOURCE = 'TrinityLake',

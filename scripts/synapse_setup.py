@@ -379,12 +379,21 @@ def setup_synapse():
         print(f"Error creating margin_invoice: {e}")
 
     # View: fact_general_ledger (general ledger with rebate info)
+    # Note: RebateCustomerID is stored as float in CSV (e.g., "1008.0"), need type conversion
     print("Creating view: fact_general_ledger...")
     try:
         cursor.execute("DROP VIEW IF EXISTS fact_general_ledger")
         cursor.execute("""
             CREATE VIEW fact_general_ledger AS
-            SELECT *
+            SELECT
+                Account,
+                Transaction_Date,
+                Domestic_Amount,
+                Foreign_Amount,
+                FromID,
+                Reference,
+                RebateCustomerName,
+                CAST(CAST(NULLIF(RebateCustomerID, '') AS DECIMAL(10,0)) AS INT) as RebateCustomerID
             FROM OPENROWSET(
                 BULK 'gold/fact_general_ledger/*/data.csv',
                 DATA_SOURCE = 'TrinityLake',
@@ -399,7 +408,7 @@ def setup_synapse():
                 FromID VARCHAR(50),
                 Reference VARCHAR(200),
                 RebateCustomerName VARCHAR(100),
-                RebateCustomerID INT
+                RebateCustomerID VARCHAR(20)
             ) AS data
         """)
         print("✅ View fact_general_ledger created!")
@@ -407,12 +416,16 @@ def setup_synapse():
         print(f"Error creating fact_general_ledger: {e}")
 
     # View: margin_rebate (rebates aggregated by customer)
+    # Note: RebateCustomerID is stored as float in CSV (e.g., "1008.0"), need type conversion
     print("Creating view: margin_rebate...")
     try:
         cursor.execute("DROP VIEW IF EXISTS margin_rebate")
         cursor.execute("""
             CREATE VIEW margin_rebate AS
-            SELECT *
+            SELECT
+                RebateCustomerName,
+                CAST(CAST(NULLIF(RebateCustomerID, '') AS DECIMAL(10,0)) AS INT) as RebateCustomerID,
+                Domestic_Amount
             FROM OPENROWSET(
                 BULK 'gold/margin_rebate/*/data.csv',
                 DATA_SOURCE = 'TrinityLake',
@@ -421,7 +434,7 @@ def setup_synapse():
                 FIRSTROW = 2
             ) WITH (
                 RebateCustomerName VARCHAR(100),
-                RebateCustomerID INT,
+                RebateCustomerID VARCHAR(20),
                 Domestic_Amount DECIMAL(18,4)
             ) AS data
         """)
