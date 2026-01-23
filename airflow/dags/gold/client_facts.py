@@ -11,7 +11,6 @@ Tables:
 - fact_invoice_detail: Invoice to customer mapping
 - fact_order_item: Order details
 - dim_customer: Customer dimension with normalized names
-- dim_lessee: Lessee dimension with contract summary
 - margin_invoice: Denormalized reporting table (joins all)
 - fact_general_ledger: General ledger with rebate customer extraction
 - margin_rebate: Rebate aggregation by customer
@@ -34,7 +33,6 @@ from lib.transformations.client import (
     transform_fact_invoice_detail,
     transform_fact_order_item,
     transform_dim_customer,
-    create_dim_lessee,
     create_margin_invoice,
     transform_fact_general_ledger,
     create_margin_rebate,
@@ -45,7 +43,6 @@ from lib.datasets import (
     GOLD_FACT_INVOICE_DETAIL,
     GOLD_FACT_ORDER_ITEM,
     GOLD_DIM_CUSTOMER,
-    GOLD_DIM_LESSEE,
     GOLD_MARGIN_INVOICE,
     GOLD_FACT_GENERAL_LEDGER,
     GOLD_MARGIN_REBATE,
@@ -63,8 +60,6 @@ BRONZE_TABLES = {
     'order_item': 'client/order_item',
     'customer_address': 'client/customer_address',
     'general_ledger': 'client/general_ledger',
-    'report_lessee': 'client/report_lessee',
-    'report_contract': 'client/report_contract',
 }
 
 WAIT_TIMEOUT_SECONDS = 300
@@ -182,17 +177,6 @@ def create_dim_customer_task(**context):
     return {'table': 'dim_customer', 'records': len(result), 'path': path}
 
 
-def create_dim_lessee_task(**context):
-    """Create dim_lessee by joining report_lessee with contract aggregations."""
-    print("Creating dim_lessee...")
-    report_lessee, partition = _load_bronze_table('report_lessee')
-    report_contract, _ = _load_bronze_table('report_contract', partition)
-
-    result = create_dim_lessee(report_lessee, report_contract)
-    path = _write_gold_table(result, 'dim_lessee', partition, ['report_lessee', 'report_contract'])
-    return {'table': 'dim_lessee', 'records': len(result), 'path': path}
-
-
 def create_fact_general_ledger_task(**context):
     """Create fact_general_ledger from general_ledger."""
     print("Creating fact_general_ledger...")
@@ -305,12 +289,6 @@ with DAG(
         outlets=[GOLD_DIM_CUSTOMER],
     )
 
-    dim_lessee = PythonOperator(
-        task_id='create_dim_lessee',
-        python_callable=create_dim_lessee_task,
-        outlets=[GOLD_DIM_LESSEE],
-    )
-
     # Reporting tables
     margin_invoice = PythonOperator(
         task_id='create_margin_invoice',
@@ -331,8 +309,6 @@ with DAG(
     )
 
     # Dependencies
-    # Fact and dimension tables feed into margin_invoice
     [fact_invoice, fact_invoice_detail, fact_order_item, dim_customer] >> margin_invoice
     fact_general_ledger >> margin_rebate
-    # All tables must complete before Synapse views are updated
-    [margin_invoice, margin_rebate, dim_lessee] >> synapse_views
+    [margin_invoice, margin_rebate] >> synapse_views

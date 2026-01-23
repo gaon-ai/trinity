@@ -108,29 +108,6 @@ CLIENT_GOLD_VIEWS = {
             Domestic_Amount
         """,
     },
-    'dim_lessee': {
-        'bulk_path': 'gold/dim_lessee/*/data.csv',
-        'columns': """
-            lessee_number VARCHAR(50),
-            customer_number VARCHAR(50),
-            lessee_name VARCHAR(200),
-            lessee_address_1 VARCHAR(200),
-            lessee_address_2 VARCHAR(200),
-            lessee_city VARCHAR(100),
-            lessee_state_code VARCHAR(10),
-            lessee_zip_code VARCHAR(20),
-            lessee_telephone VARCHAR(30),
-            lessee_cellular VARCHAR(30),
-            business_type_description VARCHAR(100),
-            lessee_birth_date DATE,
-            lessee_language VARCHAR(20),
-            email_address VARCHAR(200),
-            contract_count INT,
-            first_contract_date DATE,
-            last_contract_date DATE,
-            last_updated DATETIME2
-        """,
-    },
 }
 
 
