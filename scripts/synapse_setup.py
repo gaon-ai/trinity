@@ -442,6 +442,44 @@ def setup_synapse():
     except pymssql.Error as e:
         print(f"Error creating margin_rebate: {e}")
 
+    # View: dim_lessee (lessee dimension with contract summary)
+    print("Creating view: dim_lessee...")
+    try:
+        cursor.execute("DROP VIEW IF EXISTS dim_lessee")
+        cursor.execute("""
+            CREATE VIEW dim_lessee AS
+            SELECT *
+            FROM OPENROWSET(
+                BULK 'gold/dim_lessee/*/data.csv',
+                DATA_SOURCE = 'TrinityLake',
+                FORMAT = 'CSV',
+                PARSER_VERSION = '2.0',
+                FIRSTROW = 2
+            ) WITH (
+                lessee_number VARCHAR(50),
+                customer_number VARCHAR(50),
+                lessee_name VARCHAR(200),
+                lessee_address_1 VARCHAR(200),
+                lessee_address_2 VARCHAR(200),
+                lessee_city VARCHAR(100),
+                lessee_state_code VARCHAR(10),
+                lessee_zip_code VARCHAR(20),
+                lessee_telephone VARCHAR(30),
+                lessee_cellular VARCHAR(30),
+                business_type_description VARCHAR(100),
+                lessee_birth_date DATE,
+                lessee_language VARCHAR(20),
+                email_address VARCHAR(200),
+                contract_count INT,
+                first_contract_date DATE,
+                last_contract_date DATE,
+                last_updated DATETIME2
+            ) AS data
+        """)
+        print("✅ View dim_lessee created!")
+    except pymssql.Error as e:
+        print(f"Error creating dim_lessee: {e}")
+
     # Test queries
     print("\n" + "=" * 60)
     print("Testing views...")
@@ -508,6 +546,7 @@ Views Created:
   - fact_invoice_detail   (Gold - invoice to customer mapping)
   - fact_order_item       (Gold - order details)
   - dim_customer          (Gold - customer dimension)
+  - dim_lessee            (Gold - lessee dimension with contracts)
   - margin_invoice        (Gold - denormalized reporting table)
   - fact_general_ledger   (Gold - general ledger with rebate info)
   - margin_rebate         (Gold - rebates aggregated by customer)
