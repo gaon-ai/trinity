@@ -7,8 +7,9 @@ Usage in DAGs:
     from lib.datasets import BRONZE_SALES, SILVER_SALES
     from lib.sql_templates import render_sql
     from lib.sync_metadata import get_last_sync_value, update_sync_metadata
+    from lib.ingestion import ingest_table
     from lib.tables import TableConfig, IngestionPattern
-    from lib.tables.client import ALL_TABLES, INCREMENTAL_TABLES, FULL_REFRESH_TABLES
+    from lib.tables.client import ALL_TABLES
 """
 from lib.datalake import (
     get_datalake_client,

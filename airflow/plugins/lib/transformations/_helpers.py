@@ -18,6 +18,7 @@ from lib.transformations._constants import (
 )
 
 __all__ = [
+    'safe_to_datetime',
     'normalize_customer_id',
     'normalize_customer_name',
     'get_rebate_cutoff_date',
@@ -26,6 +27,42 @@ __all__ = [
     'get_rebate_customer_id',
     'extract_rebate_columns',
 ]
+
+
+# =============================================================================
+# DATETIME UTILITIES
+# =============================================================================
+
+def safe_to_datetime(
+    value: Any,
+    errors: str = 'coerce'
+) -> Any:
+    """
+    Safely convert value(s) to datetime, handling mixed formats.
+
+    This is a centralized datetime parser that handles various formats
+    including timestamps with milliseconds that pandas sometimes fails on.
+
+    Args:
+        value: Single value, Series, or array-like to convert
+        errors: How to handle errors - 'coerce' (default), 'raise', or 'ignore'
+
+    Returns:
+        Converted datetime value(s)
+
+    Examples:
+        >>> safe_to_datetime('2025-01-15 10:30:00')
+        Timestamp('2025-01-15 10:30:00')
+
+        >>> safe_to_datetime('2025-01-15 10:30:00.123456')
+        Timestamp('2025-01-15 10:30:00.123456')
+
+        >>> safe_to_datetime(df['date_column'])
+        0   2025-01-15
+        1   2025-01-16
+        dtype: datetime64[ns]
+    """
+    return pd.to_datetime(value, format='mixed', errors=errors)
 
 
 # =============================================================================
@@ -97,7 +134,7 @@ def is_rebate_eligible(acct: Any, trans_date: Any) -> bool:
 
     try:
         if isinstance(trans_date, str):
-            trans_dt = pd.to_datetime(trans_date)
+            trans_dt = pd.to_datetime(trans_date, format='mixed')
         else:
             trans_dt = trans_date
         return trans_dt >= get_rebate_cutoff_date()
@@ -175,7 +212,7 @@ def extract_rebate_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     # Vectorized eligibility check
     is_rebate_account = df['acct'].astype(str) == SALES_REBATE_ACCOUNT
-    trans_dates = pd.to_datetime(df['trans_date'], errors='coerce')
+    trans_dates = pd.to_datetime(df['trans_date'], format='mixed', errors='coerce')
     is_after_cutoff = trans_dates >= cutoff_date
     is_eligible = is_rebate_account & is_after_cutoff
 

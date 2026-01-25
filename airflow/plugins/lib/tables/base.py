@@ -13,19 +13,23 @@ from typing import Optional, Dict, Any, List
 class IngestionPattern(Enum):
     """Defines how a table's data should be queried for ingestion.
 
-    FULL_REFRESH: SELECT * - fetch all records, replace target data
+    FULL_REFRESH: SELECT * - fetch all records every time
         Use for: Small reference tables, tables without reliable timestamps
+        Behavior: Always fetches all records
 
-    TIMESTAMP_INCREMENTAL: WHERE timestamp_col > last_sync_value
+    INCREMENTAL: Initial full load, then WHERE timestamp > last_sync
         Use for: Large transactional tables with update timestamps
         Requires: pattern_params['timestamp_column']
+        Behavior:
+            - First sync (no sync state): Full table scan
+            - Subsequent syncs: Only new/updated records since last sync
 
     DATE_PARTITION: WHERE date_col = 'YYYY-MM-DD'
         Use for: Archive tables partitioned by date
         Requires: pattern_params['partition_column']
     """
     FULL_REFRESH = "full_refresh"
-    TIMESTAMP_INCREMENTAL = "timestamp"
+    INCREMENTAL = "incremental"
     DATE_PARTITION = "date_partition"
 
 
@@ -35,24 +39,24 @@ class TableConfig:
 
     Attributes:
         source_table: Table name in source database (e.g., 'inv_item_mst')
-        target_table: Table name in target storage (e.g., 'inv_item_mst')
+        target_table: Table name in target storage (e.g., 'invoice_item')
         pattern: Ingestion pattern to use
         pattern_params: Parameters specific to the pattern
-            - For TIMESTAMP_INCREMENTAL: {'timestamp_column': 'lastupdated'}
+            - For INCREMENTAL: {'timestamp_column': 'RecordDate'}
             - For DATE_PARTITION: {'partition_column': 'report_date'}
-        primary_key: Primary key column(s) for upsert operations
+            - For FULL_REFRESH: Optional {'where_clause': 'acct = 123'}
+        primary_key: Primary key column(s) for reference
         schema: Source schema name (default: 'dbo')
         description: Human-readable description of the table
 
     Example:
         TableConfig(
             source_table='inv_item_mst',
-            target_table='inv_item_mst',
-            pattern=IngestionPattern.TIMESTAMP_INCREMENTAL,
-            pattern_params={'timestamp_column': 'lastupdated'},
+            target_table='invoice_item',
+            pattern=IngestionPattern.INCREMENTAL,
+            pattern_params={'timestamp_column': 'RecordDate'},
             primary_key='item_id',
-            schema='dbo',
-            description='Inventory item master data'
+            description='Invoice line items with prices and quantities'
         )
     """
     source_table: str
@@ -65,7 +69,7 @@ class TableConfig:
 
     def get_timestamp_column(self) -> Optional[str]:
         """Get timestamp column for incremental sync."""
-        if self.pattern == IngestionPattern.TIMESTAMP_INCREMENTAL:
+        if self.pattern == IngestionPattern.INCREMENTAL:
             return self.pattern_params.get("timestamp_column")
         return None
 
@@ -75,31 +79,32 @@ class TableConfig:
             return self.pattern_params.get("partition_column")
         return None
 
+    def get_where_clause(self) -> Optional[str]:
+        """Get optional WHERE clause for full refresh."""
+        return self.pattern_params.get("where_clause")
+
     @property
     def full_source_name(self) -> str:
         """Full qualified source table name: [schema].[table]"""
         return f"[{self.schema}].[{self.source_table}]"
+
+    @property
+    def is_incremental(self) -> bool:
+        """Check if this table uses incremental sync."""
+        return self.pattern == IngestionPattern.INCREMENTAL
 
 
 def get_tables_by_pattern(
     tables: List[TableConfig],
     pattern: IngestionPattern
 ) -> List[TableConfig]:
-    """Filter tables by ingestion pattern.
-
-    Args:
-        tables: List of TableConfig objects
-        pattern: The pattern to filter by
-
-    Returns:
-        List of tables matching the pattern
-    """
+    """Filter tables by ingestion pattern."""
     return [t for t in tables if t.pattern == pattern]
 
 
 def get_incremental_tables(tables: List[TableConfig]) -> List[TableConfig]:
     """Get tables configured for incremental sync."""
-    return get_tables_by_pattern(tables, IngestionPattern.TIMESTAMP_INCREMENTAL)
+    return get_tables_by_pattern(tables, IngestionPattern.INCREMENTAL)
 
 
 def get_full_refresh_tables(tables: List[TableConfig]) -> List[TableConfig]:

@@ -11,3 +11,4 @@ docs/
 .idea/
 *.pyc
 __pycache__/
+airflow/.env.prod

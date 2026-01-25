@@ -6,7 +6,7 @@ data into gold layer fact and dimension tables.
 
 Structure:
     _constants.py   - Shared business constants (mappings, account codes)
-    _helpers.py     - Shared helper functions (normalization, validation)
+    _helpers.py     - Shared helper functions (normalization, datetime, validation)
     client/         - Client SQL Server transformations
 
 Usage:
@@ -16,6 +16,9 @@ Usage:
         transform_dim_customer,
         create_margin_invoice,
     )
+
+    # Import helpers
+    from lib.transformations import safe_to_datetime
 
     # Or import constants for reference/testing
     from lib.transformations import (
@@ -29,6 +32,9 @@ Extending:
     3. New mapping: Add to _constants.py
     4. New helper: Add to _helpers.py
 """
+
+# Re-export helpers
+from lib.transformations._helpers import safe_to_datetime
 
 # Re-export constants for backward compatibility and convenience
 from lib.transformations._constants import (
@@ -53,6 +59,8 @@ from lib.transformations.client import (
 )
 
 __all__ = [
+    # Helpers
+    'safe_to_datetime',
     # Constants
     'SALES_REBATE_ACCOUNT',
     'CUSTOMER_ID_MAPPING',

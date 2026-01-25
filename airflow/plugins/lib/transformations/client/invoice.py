@@ -7,7 +7,7 @@ Source tables:
 """
 import pandas as pd
 
-from lib.transformations._helpers import normalize_customer_id
+from lib.transformations._helpers import normalize_customer_id, safe_to_datetime
 
 __all__ = ['transform_fact_invoice', 'transform_fact_invoice_detail']
 
@@ -34,7 +34,7 @@ def transform_fact_invoice(df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame({
         'InvoiceID': df['inv_num'].astype(str).str.strip(),
-        'InvoiceDate': pd.to_datetime(df['tax_date']),
+        'InvoiceDate': safe_to_datetime(df['tax_date']),
         'QtyInvoiced': qty,
         'ExtendedPrice': qty * price,
         'TotalCost': qty * cost,

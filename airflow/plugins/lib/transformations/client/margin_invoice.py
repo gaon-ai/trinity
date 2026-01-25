@@ -6,7 +6,11 @@ This is the primary reporting table for margin analysis.
 """
 import pandas as pd
 
-from lib.transformations._helpers import normalize_customer_id, normalize_customer_name
+from lib.transformations._helpers import (
+    normalize_customer_id,
+    normalize_customer_name,
+    safe_to_datetime,
+)
 
 __all__ = ['create_margin_invoice']
 
@@ -77,7 +81,7 @@ def create_margin_invoice(
         'Invoice': result['inv_num'].astype(str).str.strip(),
         'CustomerID': result['cust_num'].apply(normalize_customer_id),
         'CustomerName': result['name'].apply(normalize_customer_name),
-        'InvoiceDate': pd.to_datetime(result['tax_date']).dt.date,
+        'InvoiceDate': safe_to_datetime(result['tax_date']).dt.date,
         'ProductID': result.get('item'),
         'ProductName': result.get('description'),
         'QtyInvoiced': qty,

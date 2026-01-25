@@ -7,7 +7,7 @@ Source tables:
 import pandas as pd
 
 from lib.transformations._constants import SALES_REBATE_ACCOUNT
-from lib.transformations._helpers import extract_rebate_columns
+from lib.transformations._helpers import extract_rebate_columns, safe_to_datetime
 
 __all__ = ['transform_fact_general_ledger', 'create_margin_rebate']
 
@@ -36,7 +36,7 @@ def transform_fact_general_ledger(df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame({
         'Account': df['acct'],
-        'Transaction_Date': pd.to_datetime(df['trans_date'], format='mixed'),
+        'Transaction_Date': safe_to_datetime(df['trans_date']),
         'Domestic_Amount': pd.to_numeric(df['dom_amount'], errors='coerce').fillna(0),
         'Foreign_Amount': pd.to_numeric(df['for_amount'], errors='coerce').fillna(0),
         'FromID': df['from_id'],

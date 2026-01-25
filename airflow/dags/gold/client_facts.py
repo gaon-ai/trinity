@@ -187,13 +187,24 @@ def create_fact_general_ledger_task(**context):
 
 
 def create_margin_invoice_task(**context):
-    """Create margin_invoice by joining all bronze tables."""
+    """Create margin_invoice by joining all bronze tables.
+
+    Each source table is loaded from its own latest partition to handle
+    cases where tables are synced at different times or selectively.
+    """
     print("Creating margin_invoice (joining all tables)...")
 
-    invoice_item, partition = _load_bronze_table('invoice_item')
-    invoice_header, _ = _load_bronze_table('invoice_header', partition)
-    order_item, _ = _load_bronze_table('order_item', partition)
-    customer_address, _ = _load_bronze_table('customer_address', partition)
+    # Load each table from its own latest partition
+    invoice_item, inv_item_part = _load_bronze_table('invoice_item')
+    invoice_header, inv_hdr_part = _load_bronze_table('invoice_header')
+    order_item, order_part = _load_bronze_table('order_item')
+    customer_address, cust_part = _load_bronze_table('customer_address')
+
+    # Use the newest partition among all sources for output
+    output_partition = max(inv_item_part, inv_hdr_part, order_part, cust_part)
+    print(f"  Source partitions: invoice_item={inv_item_part}, invoice_header={inv_hdr_part}, "
+          f"order_item={order_part}, customer_address={cust_part}")
+    print(f"  Output partition: {output_partition}")
 
     result = create_margin_invoice(
         invoice_item=invoice_item,
@@ -203,7 +214,7 @@ def create_margin_invoice_task(**context):
     )
 
     path = _write_gold_table(
-        result, 'margin_invoice', partition,
+        result, 'margin_invoice', output_partition,
         ['invoice_item', 'invoice_header', 'order_item', 'customer_address']
     )
     return {'table': 'margin_invoice', 'records': len(result), 'path': path}
